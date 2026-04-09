@@ -15,7 +15,7 @@ import coupleRoutes from "./routes/couple.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import featureRoutes, { ensureFeatureSchema } from "./routes/feature.routes.js";
 import { authMiddleware } from "./middleware/auth.js";
-
+import adminRoutes from './routes/admin.routes.js';
 const app = express();
 
 console.log("ENV CHECK:", {
@@ -57,7 +57,7 @@ app.use(bodyParser.json());
 app.use("/couple", coupleRoutes);
 app.use("/auth", authRoutes);
 app.use("/features", featureRoutes);
-
+app.use("/admin", adminRoutes);
 // ================= HEALTH =================
 app.get("/", (_req, res) => res.send("ok"));
 app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
