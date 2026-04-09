@@ -21,7 +21,6 @@ const app = express();
 console.log("🚀 Iniciando servidor...");
 
 //logs
-// Adicione isso no início do server.js para debug
 console.log("DATABASE_URL existe?", !!process.env.DATABASE_URL);
 console.log("JWT_SECRET existe?", !!process.env.JWT_SECRET);
 
@@ -141,45 +140,94 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
-// ================= EXPENSES =================
+// ================= EXPENSES - CORRIGIDO =================
 app.post("/expenses", authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
     const { service, price, paymentMethod, numberTimes, dueDate, recurrence } = req.body;
     const userId = req.userId;
 
+    console.log("🔥 INICIOU POST /expenses");
+    console.log("📦 BODY:", req.body);
+
     if (!service || !price || !dueDate) {
       return res.status(400).json({ error: "Dados incompletos" });
     }
 
+    const originalPrice = Number(price);
+    // CORRIGIDO: Verificar se é recorrência (numberTimes > 1 OU recurrence === 'monthly')
+    const isRecurring = (numberTimes && numberTimes > 1) || recurrence === 'monthly';
+
     await client.query("BEGIN");
 
+    // Criar a despesa principal
     const expense = await client.query(
-      `INSERT INTO expenses (user_id, service, price, paymentmethod, numbertimes, recurrence)
+      `INSERT INTO expenses 
+       (user_id, service, price, paymentmethod, numbertimes, recurrence)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [userId, service, price, paymentMethod, 1, recurrence || 'none']
+      [userId, service, originalPrice, paymentMethod, numberTimes || 1, recurrence || 'none']
     );
 
     const expenseId = expense.rows[0].id;
     const startDate = new Date(dueDate);
     startDate.setHours(12, 0, 0, 0);
-
-    const installmentsToCreate = [{ number: 1, amount: price, dueDate: startDate }];
     
+    let installmentsToCreate = [];
+    
+    if (isRecurring) {
+      // RECORRÊNCIA: Criar 'numberTimes' parcelas
+      const numberOfOccurrences = numberTimes || 12;
+      console.log(`🔄 Criando ${numberOfOccurrences} parcelas de R$ ${originalPrice.toFixed(2)}`);
+      
+      for (let i = 0; i < numberOfOccurrences; i++) {
+        let currentDate = new Date(startDate);
+        currentDate.setMonth(startDate.getMonth() + i);
+        
+        // Ajustar para o último dia do mês se necessário
+        if (currentDate.getDate() !== startDate.getDate()) {
+          currentDate.setDate(0);
+          currentDate.setDate(currentDate.getDate());
+        }
+        
+        installmentsToCreate.push({
+          number: i + 1,
+          amount: originalPrice,
+          dueDate: currentDate
+        });
+        
+        console.log(`  📅 Parcela ${i+1}: ${currentDate.toISOString().split('T')[0]} - R$ ${originalPrice.toFixed(2)}`);
+      }
+    } else {
+      // DESPESA ÚNICA
+      installmentsToCreate.push({
+        number: 1,
+        amount: originalPrice,
+        dueDate: startDate
+      });
+    }
+    
+    // Inserir as parcelas
     for (const inst of installmentsToCreate) {
       await client.query(
-        `INSERT INTO installments (expense_id, installment_number, amount, duedate, total_installments)
+        `INSERT INTO installments 
+         (expense_id, installment_number, amount, duedate, total_installments)
          VALUES ($1, $2, $3, $4, $5)`,
         [expenseId, inst.number, inst.amount, inst.dueDate, installmentsToCreate.length]
       );
     }
     
     await client.query("COMMIT");
-    res.json({ message: "Despesa criada com sucesso", expenseId });
+    console.log(`✅ ${installmentsToCreate.length} parcelas criadas com sucesso!`);
+    res.json({ 
+      message: "Despesa criada com sucesso", 
+      expenseId,
+      installments: installmentsToCreate.length 
+    });
+
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("Erro ao criar despesa:", err);
-    res.status(500).json({ error: err.message });
+    console.error("🔥 ERRO AO CRIAR DESPESA:", err);
+    res.status(500).json({ error: "Erro ao adicionar despesa: " + err.message });
   } finally {
     client.release();
   }
@@ -202,6 +250,7 @@ app.get("/expenses/month/:year/:month", authMiddleware, async (req, res) => {
       [userId, year, month]
     );
 
+    console.log(`📊 Carregadas ${result.rows.length} despesas para ${month}/${year}`);
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -267,6 +316,55 @@ app.delete("/expenses/:id", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= DASHBOARD =================
+app.get("/dashboard/month-total/:year/:month", async (req, res) => {
+  const { year, month } = req.params;
+
+  const result = await pool.query(
+    `SELECT SUM(amount) as total
+     FROM installments
+     WHERE EXTRACT(YEAR FROM duedate)=$1
+     AND EXTRACT(MONTH FROM duedate)=$2`,
+    [parseInt(year), parseInt(month)]
+  );
+
+  res.json(result.rows[0]);
+});
+
+app.get("/dashboard/alerts", async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT e.service, i.duedate, i.amount
+      FROM installments i
+      JOIN expenses e ON e.id = i.expense_id
+      WHERE i.duedate BETWEEN NOW() AND NOW() + interval '7 days'
+      ORDER BY i.duedate
+    `);
+
+    res.json(result.rows);
+  } catch {
+    res.json([]);
+  }
+});
+
+app.get("/dashboard/monthly", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        TO_CHAR(i.duedate,'Mon') as month,
+        SUM(i.amount) as total
+      FROM installments i
+      GROUP BY TO_CHAR(i.duedate,'Mon')
+      ORDER BY MIN(i.duedate)
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.json([]);
   }
 });
 
