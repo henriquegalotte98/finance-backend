@@ -27,8 +27,8 @@ const isAdmin = async (req, res, next) => {
 };
 
 // ==================== SETUP INICIAL ====================
-// Criar usuário admin (primeira execução)
-router.post('/admin/setup', async (req, res) => {
+// Criar usuário admin (primeira execução) - ROTA: POST /admin/setup
+router.post('/setup', async (req, res) => {
   try {
     const adminEmail = 'admin@duofinance.com';
     const adminPassword = 'admin123';
@@ -58,8 +58,8 @@ router.post('/admin/setup', async (req, res) => {
 });
 
 // ==================== LIMPEZA DE DADOS ====================
-// Limpar todos os usuários (exceto admins)
-router.post('/admin/clear-users', authMiddleware, isAdmin, async (req, res) => {
+// Limpar todos os usuários (exceto admins) - ROTA: POST /admin/clear-users
+router.post('/clear-users', authMiddleware, isAdmin, async (req, res) => {
   try {
     // Deletar todas as dependências primeiro
     await pool.query('DELETE FROM expense_attachments');
@@ -83,8 +83,8 @@ router.post('/admin/clear-users', authMiddleware, isAdmin, async (req, res) => {
   }
 });
 
-// Limpar apenas dados de teste (mantém usuários)
-router.post('/admin/clear-test-data', authMiddleware, isAdmin, async (req, res) => {
+// Limpar apenas dados de teste (mantém usuários) - ROTA: POST /admin/clear-test-data
+router.post('/clear-test-data', authMiddleware, isAdmin, async (req, res) => {
   try {
     // Deletar apenas dados gerados por usuários de teste
     await pool.query(`
@@ -112,8 +112,8 @@ router.post('/admin/clear-test-data', authMiddleware, isAdmin, async (req, res) 
 });
 
 // ==================== CRIAÇÃO DE USUÁRIOS ====================
-// Criar usuários de teste
-router.post('/admin/create-test-users', authMiddleware, isAdmin, async (req, res) => {
+// Criar usuários de teste - ROTA: POST /admin/create-test-users
+router.post('/create-test-users', authMiddleware, isAdmin, async (req, res) => {
   try {
     const testUsers = [
       { name: 'João Silva', email: 'joao@teste.com', password: '123456' },
@@ -152,10 +152,10 @@ router.post('/admin/create-test-users', authMiddleware, isAdmin, async (req, res
   }
 });
 
-// Criar usuário individual pelo admin
-router.post('/admin/users', authMiddleware, isAdmin, async (req, res) => {
+// Criar usuário individual pelo admin - ROTA: POST /admin/users
+router.post('/users', authMiddleware, isAdmin, async (req, res) => {
   try {
-    const { name, email, password, isAdmin: makeAdmin } = req.body;
+    const { name, email, password } = req.body;
     
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha são obrigatórios' });
@@ -181,8 +181,8 @@ router.post('/admin/users', authMiddleware, isAdmin, async (req, res) => {
 });
 
 // ==================== LISTAGEM ====================
-// Listar todos os usuários com estatísticas
-router.get('/admin/users', authMiddleware, isAdmin, async (req, res) => {
+// Listar todos os usuários com estatísticas - ROTA: GET /admin/users
+router.get('/users', authMiddleware, isAdmin, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
@@ -211,8 +211,8 @@ router.get('/admin/users', authMiddleware, isAdmin, async (req, res) => {
   }
 });
 
-// Buscar usuário por ID
-router.get('/admin/users/:id', authMiddleware, isAdmin, async (req, res) => {
+// Buscar usuário por ID - ROTA: GET /admin/users/:id
+router.get('/users/:id', authMiddleware, isAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(`
@@ -235,8 +235,8 @@ router.get('/admin/users/:id', authMiddleware, isAdmin, async (req, res) => {
 });
 
 // ==================== EDIÇÃO E REMOÇÃO ====================
-// Atualizar usuário
-router.put('/admin/users/:id', authMiddleware, isAdmin, async (req, res) => {
+// Atualizar usuário - ROTA: PUT /admin/users/:id
+router.put('/users/:id', authMiddleware, isAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, email, password } = req.body;
@@ -287,8 +287,8 @@ router.put('/admin/users/:id', authMiddleware, isAdmin, async (req, res) => {
   }
 });
 
-// Deletar usuário
-router.delete('/admin/users/:id', authMiddleware, isAdmin, async (req, res) => {
+// Deletar usuário - ROTA: DELETE /admin/users/:id
+router.delete('/users/:id', authMiddleware, isAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -320,8 +320,8 @@ router.delete('/admin/users/:id', authMiddleware, isAdmin, async (req, res) => {
 });
 
 // ==================== ESTATÍSTICAS ====================
-// Estatísticas do sistema
-router.get('/admin/stats', authMiddleware, isAdmin, async (req, res) => {
+// Estatísticas do sistema - ROTA: GET /admin/stats
+router.get('/stats', authMiddleware, isAdmin, async (req, res) => {
   try {
     const totalUsers = await pool.query('SELECT COUNT(*) FROM users');
     const totalExpenses = await pool.query('SELECT COUNT(*) FROM expenses');
@@ -357,8 +357,8 @@ router.get('/admin/stats', authMiddleware, isAdmin, async (req, res) => {
 });
 
 // ==================== CASAL ====================
-// Criar casal de exemplo
-router.post('/admin/create-test-couple', authMiddleware, isAdmin, async (req, res) => {
+// Criar casal de exemplo - ROTA: POST /admin/create-test-couple
+router.post('/create-test-couple', authMiddleware, isAdmin, async (req, res) => {
   try {
     const { user1Email, user2Email } = req.body;
     
@@ -414,8 +414,8 @@ router.post('/admin/create-test-couple', authMiddleware, isAdmin, async (req, re
   }
 });
 
-// Listar todos os casais
-router.get('/admin/couples', authMiddleware, isAdmin, async (req, res) => {
+// Listar todos os casais - ROTA: GET /admin/couples
+router.get('/couples', authMiddleware, isAdmin, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
