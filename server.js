@@ -20,6 +20,11 @@ const app = express();
 
 console.log("🚀 Iniciando servidor...");
 
+//logs
+// Adicione isso no início do server.js para debug
+console.log("DATABASE_URL existe?", !!process.env.DATABASE_URL);
+console.log("JWT_SECRET existe?", !!process.env.JWT_SECRET);
+
 // ================= CORS =================
 app.use((req, res, next) => {
   const allowedOrigins = [
