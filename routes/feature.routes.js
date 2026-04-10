@@ -1042,7 +1042,106 @@ router.delete("/travel/services/:serviceId", authMiddleware, async (req, res) =>
     console.error("Erro ao deletar serviço:", error);
     res.status(500).json({ error: error.message });
   }
-});
+
+  // ================= LISTA DE DESEJOS =================
+  router.get('/wishlist', authMiddleware, async (req, res) => {
+    const coupleId = await getCoupleId(req.userId);
+    const result = await pool.query(
+      `SELECT * FROM wishlist_items 
+     WHERE user_id = $1 OR (is_shared = true AND couple_id = $2)
+     ORDER BY created_at DESC`,
+      [req.userId, coupleId]
+    );
+    res.json(result.rows);
+  });
+
+  router.post('/wishlist', authMiddleware, async (req, res) => {
+    const { title, price, link, image, notes } = req.body;
+    const result = await pool.query(
+      `INSERT INTO wishlist_items (user_id, title, price, link, image, notes)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [req.userId, title, price, link, image, notes]
+    );
+    res.json(result.rows[0]);
+  });
+
+  router.put('/wishlist/:id', authMiddleware, async (req, res) => {
+    const { title, price, link, image, notes } = req.body;
+    const result = await pool.query(
+      `UPDATE wishlist_items SET title = $1, price = $2, link = $3, image = $4, notes = $5
+     WHERE id = $6 AND user_id = $7 RETURNING *`,
+      [title, price, link, image, notes, req.params.id, req.userId]
+    );
+    res.json(result.rows[0]);
+  });
+
+  router.delete('/wishlist/:id', authMiddleware, async (req, res) => {
+    await pool.query(`DELETE FROM wishlist_items WHERE id = $1 AND user_id = $2`, [req.params.id, req.userId]);
+    res.json({ success: true });
+  });
+
+  // ================= LISTA DE COMPRAS =================
+  router.get('/shopping-list', authMiddleware, async (req, res) => {
+    const coupleId = await getCoupleId(req.userId);
+    const result = await pool.query(
+      `SELECT * FROM shopping_list_items 
+     WHERE user_id = $1 OR (is_shared = true AND couple_id = $2)
+     ORDER BY status ASC, created_at DESC`,
+      [req.userId, coupleId]
+    );
+    res.json(result.rows);
+  });
+
+  router.post('/shopping-list', authMiddleware, async (req, res) => {
+    const { name, quantity, price, link, image, status } = req.body;
+    const result = await pool.query(
+      `INSERT INTO shopping_list_items (user_id, name, quantity, price, link, image, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [req.userId, name, quantity, price, link, image, status || 'pending']
+    );
+    res.json(result.rows[0]);
+  });
+
+  router.patch('/shopping-list/:id/status', authMiddleware, async (req, res) => {
+    const { status, actualPrice } = req.body;
+    const result = await pool.query(
+      `UPDATE shopping_list_items SET status = $1, price = COALESCE($2, price)
+     WHERE id = $3 AND user_id = $4 RETURNING *`,
+      [status, actualPrice, req.params.id, req.userId]
+    );
+    res.json(result.rows[0]);
+  });
+
+  router.delete('/shopping-list/:id', authMiddleware, async (req, res) => {
+    await pool.query(`DELETE FROM shopping_list_items WHERE id = $1 AND user_id = $2`, [req.params.id, req.userId]);
+    res.json({ success: true });
+  });
+
+  // Finalizar compra e adicionar à planilha de despesas
+  router.post('/shopping-list/checkout', authMiddleware, async (req, res) => {
+    const { items, total, receiptImage, paymentMethod, responsible } = req.body;
+    const userId = responsible === 'me' ? req.userId : await getSpouseId(req.userId);
+
+    // Adicionar despesa principal
+    const expense = await pool.query(
+      `INSERT INTO expenses (user_id, service, price, paymentmethod, due_date)
+     VALUES ($1, $2, $3, $4, NOW()) RETURNING id`,
+      [userId, 'Compra de Mercado', total, paymentMethod]
+    );
+
+    // Adicionar parcelas
+    await pool.query(
+      `INSERT INTO installments (expense_id, installment_number, amount, duedate, total_installments)
+     VALUES ($1, 1, $2, NOW(), 1)`,
+      [expense.rows[0].id, total]
+    );
+
+    res.json({ success: true, expenseId: expense.rows[0].id });
+  });
+
+}
+
+);
 
 //teste de deploy backend
 
