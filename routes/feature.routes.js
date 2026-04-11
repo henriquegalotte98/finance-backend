@@ -44,7 +44,6 @@ async function tryFetchHotelPrices({ destination }) {
     if (!response.ok) return null;
     const json = await response.json();
     if (!json?.data?.[0]) return null;
-    // API gratuita costuma variar por plano; mantemos como referência aproximada.
     return 320;
   } catch (_err) {
     return null;
@@ -191,6 +190,17 @@ async function getCoupleId(userId) {
   return result.rows[0]?.couple_id || null;
 }
 
+async function getSpouseId(userId) {
+  const coupleId = await getCoupleId(userId);
+  if (!coupleId) return null;
+  const result = await pool.query(
+    "SELECT user_id FROM couple_members WHERE couple_id=$1 AND user_id != $2 LIMIT 1",
+    [coupleId, userId]
+  );
+  return result.rows[0]?.user_id || null;
+}
+
+// ================= CASAL =================
 router.get("/couple/me", authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
@@ -222,6 +232,7 @@ router.post("/couple/living-together", authMiddleware, async (req, res) => {
   }
 });
 
+// ================= LISTAS COMPARTILHADAS =================
 router.get("/lists", authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
@@ -326,45 +337,6 @@ router.put("/lists/items/:itemId", authMiddleware, async (req, res) => {
   }
 });
 
-// Adicione esta rota no arquivo de rotas de despesas
-router.delete("/expenses/:id", authMiddleware, async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const expenseId = req.params.id;
-    console.log(`🗑️ Deletando despesa ID: ${expenseId} - Usuário: ${req.userId}`);
-
-    // Verificar se a despesa existe e pertence ao usuário
-    const expenseCheck = await client.query(
-      "SELECT id, user_id FROM expenses WHERE id = $1",
-      [expenseId]
-    );
-
-    if (expenseCheck.rows.length === 0) {
-      console.log(`❌ Despesa ${expenseId} não encontrada`);
-      return res.status(404).json({ error: "Despesa não encontrada" });
-    }
-
-    // Verificar se o usuário tem permissão
-    if (expenseCheck.rows[0].user_id !== req.userId) {
-      console.log(`❌ Usuário ${req.userId} não tem permissão para deletar despesa ${expenseId}`);
-      return res.status(403).json({ error: "Sem permissão para deletar esta despesa" });
-    }
-
-    // Deletar a despesa
-    await client.query("DELETE FROM expenses WHERE id = $1", [expenseId]);
-
-    console.log(`✅ Despesa ${expenseId} deletada com sucesso`);
-    res.json({ success: true, message: "Despesa deletada com sucesso" });
-
-  } catch (error) {
-    console.error("❌ Erro ao deletar despesa:", error);
-    await client.query("ROLLBACK");
-    res.status(500).json({ error: "Erro ao deletar despesa: " + error.message });
-  } finally {
-    client.release();
-  }
-});
-
 router.delete("/lists/items/:itemId", authMiddleware, async (req, res) => {
   try {
     await pool.query("DELETE FROM shared_list_items WHERE id=$1", [req.params.itemId]);
@@ -374,6 +346,7 @@ router.delete("/lists/items/:itemId", authMiddleware, async (req, res) => {
   }
 });
 
+// ================= TODOS =================
 router.get("/todos/me", authMiddleware, async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM couple_todos WHERE user_id=$1 ORDER BY created_at DESC", [req.userId]);
@@ -439,6 +412,7 @@ router.delete("/todos/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// ================= VIAGENS =================
 router.get("/travel", authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
@@ -564,6 +538,7 @@ router.get("/travel/:planId/final-data", authMiddleware, async (req, res) => {
 });
 
 router.get("/travel/:planId/insights", authMiddleware, async (req, res) => {
+  // ... manter o código existente (é muito longo)
   try {
     const planResult = await pool.query("SELECT * FROM travel_plans WHERE id=$1 LIMIT 1", [req.params.planId]);
     if (!planResult.rows[0]) return res.status(404).json({ error: "Viagem não encontrada" });
@@ -605,11 +580,7 @@ router.get("/travel/:planId/insights", authMiddleware, async (req, res) => {
     const originIata = iataMap[String(origin).toLowerCase()] || null;
     const destinationIata = iataMap[String(destination).toLowerCase()] || null;
 
-    const baseTransport = {
-      air: 1200,
-      bus: 420,
-      car: 650
-    };
+    const baseTransport = { air: 1200, bus: 420, car: 650 };
     const seasonalFactor = tripMonth ? 1 : 0.92;
     const fallbackEstimate = Math.round((baseTransport[mode] || 1000) * seasonalFactor * (1 + (Math.random() * 0.18)));
     const apiEstimate = await tryFetchTravelPrices({ originIata, destinationIata, month: tripMonth, mode });
@@ -628,69 +599,16 @@ router.get("/travel/:planId/insights", authMiddleware, async (req, res) => {
 
     res.json({
       destination,
-      theme: {
-        label: theme.label,
-        accent: theme.accent
-      },
-      transportPreview: {
-        mode,
-        tripMonth,
-        flexibleMonths,
-        estimatedPricePerPerson: estimate,
-        estimatedPriceCouple: estimate * 2
-      },
+      theme: { label: theme.label, accent: theme.accent },
+      transportPreview: { mode, tripMonth, flexibleMonths, estimatedPricePerPerson: estimate, estimatedPriceCouple: estimate * 2 },
       media: theme.media,
-      accommodationPreview: {
-        checkIn,
-        checkOut,
-        nights,
-        estimatedNightly: hotelNight,
-        estimatedTotal: hotelTotal
-      },
+      accommodationPreview: { checkIn, checkOut, nights, estimatedNightly: hotelNight, estimatedTotal: hotelTotal },
       cards: {
-        transport: {
-          title: "Transporte",
-          hints: [
-            "Compare ponte aérea com escalas para reduzir custo.",
-            "Inclua bagagem no cálculo de custo total."
-          ]
-        },
-        accommodation: {
-          title: "Hospedagem",
-          hints: [
-            "Prefira regiões com fácil acesso ao transporte.",
-            "Cheque taxa de limpeza e impostos antes de fechar."
-          ],
-          suggestions: [
-            "Filtre por nota 8+ e cancelamento grátis.",
-            "Compare hotel com apartamento para estadias longas.",
-            "Verifique custo com café da manhã incluso."
-          ],
-          links: [
-            `https://www.google.com/travel/hotels/${destinationEncoded}`,
-            `https://www.booking.com/searchresults.pt-br.html?ss=${destinationEncoded}`
-          ]
-        },
-        activities: {
-          title: "Passeios e atividades",
-          links: [googleSearch(searchQueries.tours), googleSearch(searchQueries.mapActivities)],
-          suggestions: [
-            ...theme.activityHighlights,
-            "Dica extra: reserve com antecedência em alta temporada."
-          ]
-        },
-        food: {
-          title: "Alimentação",
-          links: [googleSearch(searchQueries.food), googleSearch(searchQueries.restaurants)],
-          suggestions: [
-            ...theme.foodHighlights,
-            "Combine refeições leves com dias de muito passeio."
-          ]
-        },
-        maps: {
-          title: "Mapas",
-          links: [mapsRoute, mapsRegion]
-        }
+        transport: { title: "Transporte", hints: ["Compare ponte aérea com escalas para reduzir custo.", "Inclua bagagem no cálculo de custo total."] },
+        accommodation: { title: "Hospedagem", hints: ["Prefira regiões com fácil acesso ao transporte.", "Cheque taxa de limpeza e impostos antes de fechar."], suggestions: ["Filtre por nota 8+ e cancelamento grátis.", "Compare hotel com apartamento para estadias longas.", "Verifique custo com café da manhã incluso."], links: [`https://www.google.com/travel/hotels/${destinationEncoded}`, `https://www.booking.com/searchresults.pt-br.html?ss=${destinationEncoded}`] },
+        activities: { title: "Passeios e atividades", links: [googleSearch(searchQueries.tours), googleSearch(searchQueries.mapActivities)], suggestions: [...theme.activityHighlights, "Dica extra: reserve com antecedência em alta temporada."] },
+        food: { title: "Alimentação", links: [googleSearch(searchQueries.food), googleSearch(searchQueries.restaurants)], suggestions: [...theme.foodHighlights, "Combine refeições leves com dias de muito passeio."] },
+        maps: { title: "Mapas", links: [mapsRoute, mapsRegion] }
       }
     });
   } catch (err) {
@@ -698,6 +616,7 @@ router.get("/travel/:planId/insights", authMiddleware, async (req, res) => {
   }
 });
 
+// ================= ECONOMIAS =================
 router.get("/savings", authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
@@ -757,10 +676,7 @@ router.post("/savings/:walletId/tx", authMiddleware, async (req, res) => {
 
 router.get("/savings/:walletId/tx", authMiddleware, async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT * FROM savings_transactions WHERE wallet_id=$1 ORDER BY created_at DESC",
-      [req.params.walletId]
-    );
+    const result = await pool.query("SELECT * FROM savings_transactions WHERE wallet_id=$1 ORDER BY created_at DESC", [req.params.walletId]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: "Erro ao listar transações" });
@@ -769,14 +685,8 @@ router.get("/savings/:walletId/tx", authMiddleware, async (req, res) => {
 
 router.patch("/savings/:walletId", authMiddleware, async (req, res) => {
   try {
-    console.log('=== PATCH SAVINGS ===');
-    console.log('Wallet ID:', req.params.walletId);
-    console.log('User ID:', req.userId);
-    console.log('Body:', req.body);
-
     const { name, is_shared } = req.body;
     const coupleId = await getCoupleId(req.userId);
-
     const result = await pool.query(
       `UPDATE savings_wallets
        SET name = COALESCE($1, name),
@@ -786,17 +696,11 @@ router.patch("/savings/:walletId", authMiddleware, async (req, res) => {
        RETURNING *`,
       [name || null, typeof is_shared === "boolean" ? is_shared : null, coupleId, req.params.walletId, req.userId]
     );
-
-    console.log('Rows affected:', result.rowCount);
-    console.log('Updated wallet:', result.rows[0]);
-
     if (result.rowCount === 0) {
       return res.status(404).json({ error: "Carteira não encontrada ou você não é o dono" });
     }
-
     res.json({ success: true });
   } catch (err) {
-    console.error('Erro detalhado no PATCH savings:', err);
     res.status(500).json({ error: "Erro ao editar carteira: " + err.message });
   }
 });
@@ -810,28 +714,45 @@ router.delete("/savings/:walletId", authMiddleware, async (req, res) => {
   }
 });
 
+// ================= CÂMBIO =================
 router.get("/fx/dashboard", authMiddleware, async (_req, res) => {
   try {
     const response = await fetch("https://open.er-api.com/v6/latest/USD");
     const json = await response.json();
     const rates = json.rates || {};
     const currencies = ["USD", "CAD", "EUR", "GBP", "JPY", "ARS", "CLP", "UYU", "PYG", "PEN", "BRL"];
-    const selected = currencies.map((code) => ({
-      code,
-      perUsd: rates[code] || null
-    }));
+    const selected = currencies.map((code) => ({ code, perUsd: rates[code] || null }));
     res.json({ base: "USD", updatedAt: json.time_last_update_utc, rates: selected });
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar cotações" });
   }
 });
 
+// ================= DESPESAS =================
+router.delete("/expenses/:id", authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const expenseId = req.params.id;
+    const expenseCheck = await client.query("SELECT id, user_id FROM expenses WHERE id = $1", [expenseId]);
+    if (expenseCheck.rows.length === 0) {
+      return res.status(404).json({ error: "Despesa não encontrada" });
+    }
+    if (expenseCheck.rows[0].user_id !== req.userId) {
+      return res.status(403).json({ error: "Sem permissão para deletar esta despesa" });
+    }
+    await client.query("DELETE FROM expenses WHERE id = $1", [expenseId]);
+    res.json({ success: true, message: "Despesa deletada com sucesso" });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ error: "Erro ao deletar despesa: " + error.message });
+  } finally {
+    client.release();
+  }
+});
+
 router.get("/expenses/:expenseId/attachments", authMiddleware, async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT * FROM expense_attachments WHERE expense_id=$1 ORDER BY created_at DESC",
-      [req.params.expenseId]
-    );
+    const result = await pool.query("SELECT * FROM expense_attachments WHERE expense_id=$1 ORDER BY created_at DESC", [req.params.expenseId]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar comprovantes" });
@@ -854,299 +775,7 @@ router.post("/expenses/:expenseId/attachments", authMiddleware, async (req, res)
   }
 });
 
-router.post("/dev/seed-demo", async (req, res) => {
-  try {
-    if (process.env.ALLOW_DEMO_SEED !== "true") {
-      return res.status(403).json({ error: "Seed demo desabilitado. Defina ALLOW_DEMO_SEED=true" });
-    }
-
-    const demoUsers = [
-      { name: "Ana Demo", email: "ana.demo@finance.local", password: "123456" },
-      { name: "Bruno Demo", email: "bruno.demo@finance.local", password: "123456" },
-      { name: "Carla Demo", email: "carla.demo@finance.local", password: "123456" },
-      { name: "Diego Demo", email: "diego.demo@finance.local", password: "123456" }
-    ];
-
-    const created = [];
-    for (const user of demoUsers) {
-      const exists = await pool.query("SELECT id FROM users WHERE email=$1", [user.email]);
-      if (exists.rows[0]) {
-        created.push({ ...user, id: exists.rows[0].id });
-        continue;
-      }
-      const hash = await bcrypt.hash(user.password, 10);
-      const result = await pool.query(
-        "INSERT INTO users (name, email, password_hash) VALUES ($1,$2,$3) RETURNING id",
-        [user.name, user.email, hash]
-      );
-      created.push({ ...user, id: result.rows[0].id });
-    }
-
-    res.json({
-      success: true,
-      accounts: created.map((u) => ({ name: u.name, email: u.email, password: u.password }))
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Erro ao criar contas demo" });
-  }
-});
-
-// backend/src/routes/feature.routes.js
-
-// ================= TRANSPORTE DA VIAGEM =================
-// Salvar dados de transporte
-router.post("/travel/:planId/transport", authMiddleware, async (req, res) => {
-  try {
-    const { planId } = req.params;
-    const transportData = req.body;
-
-    // Verificar se o usuário tem permissão na viagem
-    const planCheck = await pool.query(
-      `SELECT id FROM travel_plans 
-       WHERE id = $1 AND (owner_user_id = $2 OR is_shared = true)`,
-      [planId, req.userId]
-    );
-
-    if (planCheck.rows.length === 0) {
-      return res.status(403).json({ error: "Acesso negado a esta viagem" });
-    }
-
-    await pool.query(
-      `INSERT INTO travel_transport (travel_plan_id, user_id, transport_data, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (travel_plan_id) DO UPDATE 
-       SET transport_data = EXCLUDED.transport_data, updated_at = NOW()`,
-      [planId, req.userId, JSON.stringify(transportData)]
-    );
-
-    res.json({ success: true, message: "Transporte salvo com sucesso" });
-  } catch (error) {
-    console.error("Erro ao salvar transporte:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Buscar dados de transporte
-router.get("/travel/:planId/transport", authMiddleware, async (req, res) => {
-  try {
-    const { planId } = req.params;
-
-    const result = await pool.query(
-      `SELECT transport_data FROM travel_transport WHERE travel_plan_id = $1`,
-      [planId]
-    );
-
-    res.json(result.rows[0]?.transport_data || {});
-  } catch (error) {
-    console.error("Erro ao buscar transporte:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ================= SERVIÇOS DA VIAGEM =================
-// Criar serviço
-router.post("/travel/:planId/services", authMiddleware, async (req, res) => {
-  try {
-    const { planId } = req.params;
-    const { title, description, value, bookingDate, usageDate, category, status } = req.body;
-
-    // Verificar permissão
-    const planCheck = await pool.query(
-      `SELECT id FROM travel_plans 
-       WHERE id = $1 AND (owner_user_id = $2 OR is_shared = true)`,
-      [planId, req.userId]
-    );
-
-    if (planCheck.rows.length === 0) {
-      return res.status(403).json({ error: "Acesso negado a esta viagem" });
-    }
-
-    const result = await pool.query(
-      `INSERT INTO travel_services 
-       (travel_plan_id, user_id, title, description, value, booking_date, usage_date, category, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [planId, req.userId, title, description, value, bookingDate, usageDate, category, status || 'planejado']
-    );
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error("Erro ao criar serviço:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Listar serviços da viagem
-router.get("/travel/:planId/services", authMiddleware, async (req, res) => {
-  try {
-    const { planId } = req.params;
-
-    const result = await pool.query(
-      `SELECT * FROM travel_services 
-       WHERE travel_plan_id = $1 
-       ORDER BY created_at DESC`,
-      [planId]
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Erro ao listar serviços:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Atualizar serviço
-router.put("/travel/services/:serviceId", authMiddleware, async (req, res) => {
-  try {
-    const { serviceId } = req.params;
-    const { title, description, value, bookingDate, usageDate, category, status } = req.body;
-
-    const result = await pool.query(
-      `UPDATE travel_services 
-       SET title = $1, description = $2, value = $3, 
-           booking_date = $4, usage_date = $5, 
-           category = $6, status = $7, updated_at = NOW()
-       WHERE id = $8 AND user_id = $9
-       RETURNING *`,
-      [title, description, value, bookingDate, usageDate, category, status, serviceId, req.userId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Serviço não encontrado" });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error("Erro ao atualizar serviço:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Deletar serviço
-router.delete("/travel/services/:serviceId", authMiddleware, async (req, res) => {
-  try {
-    const { serviceId } = req.params;
-
-    const result = await pool.query(
-      `DELETE FROM travel_services 
-       WHERE id = $1 AND user_id = $2`,
-      [serviceId, req.userId]
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Serviço não encontrado" });
-    }
-
-    res.json({ success: true, message: "Serviço removido" });
-  } catch (error) {
-    console.error("Erro ao deletar serviço:", error);
-    res.status(500).json({ error: error.message });
-  }
-
-  // ================= LISTA DE DESEJOS =================
-  router.get('/wishlist', authMiddleware, async (req, res) => {
-    const coupleId = await getCoupleId(req.userId);
-    const result = await pool.query(
-      `SELECT * FROM wishlist_items 
-     WHERE user_id = $1 OR (is_shared = true AND couple_id = $2)
-     ORDER BY created_at DESC`,
-      [req.userId, coupleId]
-    );
-    res.json(result.rows);
-  });
-
-  router.post('/wishlist', authMiddleware, async (req, res) => {
-    const { title, price, link, image, notes } = req.body;
-    const result = await pool.query(
-      `INSERT INTO wishlist_items (user_id, title, price, link, image, notes)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [req.userId, title, price, link, image, notes]
-    );
-    res.json(result.rows[0]);
-  });
-
-  router.put('/wishlist/:id', authMiddleware, async (req, res) => {
-    const { title, price, link, image, notes } = req.body;
-    const result = await pool.query(
-      `UPDATE wishlist_items SET title = $1, price = $2, link = $3, image = $4, notes = $5
-     WHERE id = $6 AND user_id = $7 RETURNING *`,
-      [title, price, link, image, notes, req.params.id, req.userId]
-    );
-    res.json(result.rows[0]);
-  });
-
-  router.delete('/wishlist/:id', authMiddleware, async (req, res) => {
-    await pool.query(`DELETE FROM wishlist_items WHERE id = $1 AND user_id = $2`, [req.params.id, req.userId]);
-    res.json({ success: true });
-  });
-
-  // ================= LISTA DE COMPRAS =================
-  router.get('/shopping-list', authMiddleware, async (req, res) => {
-    const coupleId = await getCoupleId(req.userId);
-    const result = await pool.query(
-      `SELECT * FROM shopping_list_items 
-     WHERE user_id = $1 OR (is_shared = true AND couple_id = $2)
-     ORDER BY status ASC, created_at DESC`,
-      [req.userId, coupleId]
-    );
-    res.json(result.rows);
-  });
-
-  router.post('/shopping-list', authMiddleware, async (req, res) => {
-    const { name, quantity, price, link, image, status } = req.body;
-    const result = await pool.query(
-      `INSERT INTO shopping_list_items (user_id, name, quantity, price, link, image, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [req.userId, name, quantity, price, link, image, status || 'pending']
-    );
-    res.json(result.rows[0]);
-  });
-
-  router.patch('/shopping-list/:id/status', authMiddleware, async (req, res) => {
-    const { status, actualPrice } = req.body;
-    const result = await pool.query(
-      `UPDATE shopping_list_items SET status = $1, price = COALESCE($2, price)
-     WHERE id = $3 AND user_id = $4 RETURNING *`,
-      [status, actualPrice, req.params.id, req.userId]
-    );
-    res.json(result.rows[0]);
-  });
-
-  router.delete('/shopping-list/:id', authMiddleware, async (req, res) => {
-    await pool.query(`DELETE FROM shopping_list_items WHERE id = $1 AND user_id = $2`, [req.params.id, req.userId]);
-    res.json({ success: true });
-  });
-
-  // Finalizar compra e adicionar à planilha de despesas
-  router.post('/shopping-list/checkout', authMiddleware, async (req, res) => {
-    const { items, total, receiptImage, paymentMethod, responsible } = req.body;
-    const userId = responsible === 'me' ? req.userId : await getSpouseId(req.userId);
-
-    // Adicionar despesa principal
-    const expense = await pool.query(
-      `INSERT INTO expenses (user_id, service, price, paymentmethod, due_date)
-     VALUES ($1, $2, $3, $4, NOW()) RETURNING id`,
-      [userId, 'Compra de Mercado', total, paymentMethod]
-    );
-
-    // Adicionar parcelas
-    await pool.query(
-      `INSERT INTO installments (expense_id, installment_number, amount, duedate, total_installments)
-     VALUES ($1, 1, $2, NOW(), 1)`,
-      [expense.rows[0].id, total]
-    );
-
-    res.json({ success: true, expenseId: expense.rows[0].id });
-  });
-
-}
-
-);
-
-// backend/src/routes/feature.routes.js
-
 // ================= LISTA DE DESEJOS =================
-// Buscar todos os itens da wishlist
 router.get('/wishlist', authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
@@ -1163,12 +792,10 @@ router.get('/wishlist', authMiddleware, async (req, res) => {
   }
 });
 
-// Criar novo item na wishlist
 router.post('/wishlist', authMiddleware, async (req, res) => {
   try {
     const { title, price, link, image, notes } = req.body;
     const coupleId = await getCoupleId(req.userId);
-
     const result = await pool.query(
       `INSERT INTO wishlist_items (user_id, couple_id, title, price, link, image, notes)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -1182,15 +809,13 @@ router.post('/wishlist', authMiddleware, async (req, res) => {
   }
 });
 
-// Atualizar item da wishlist
 router.put('/wishlist/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, price, link, image, notes } = req.body;
-
     const result = await pool.query(
       `UPDATE wishlist_items 
-       SET title = $1, price = $2, link = $3, image = $4, notes = $5
+       SET title = $1, price = $2, link = $3, image = $4, notes = $5, updated_at = NOW()
        WHERE id = $6 AND user_id = $7
        RETURNING *`,
       [title, price, link, image, notes, id, req.userId]
@@ -1202,7 +827,6 @@ router.put('/wishlist/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Deletar item da wishlist
 router.delete('/wishlist/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1217,19 +841,15 @@ router.delete('/wishlist/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Status de compartilhamento da wishlist
 router.get('/wishlist/share-status', authMiddleware, async (req, res) => {
   try {
-    const coupleId = await getCoupleId(req.userId);
     const result = await pool.query(
       `SELECT is_shared FROM wishlist_share_settings 
        WHERE user_id = $1`,
       [req.userId]
     );
-
     const isShared = result.rows[0]?.is_shared || false;
     const shareCode = isShared ? `WISH-${req.userId}-${Date.now()}` : null;
-
     res.json({ isShared, shareCode });
   } catch (error) {
     console.error('Erro ao buscar status de compartilhamento:', error);
@@ -1237,18 +857,15 @@ router.get('/wishlist/share-status', authMiddleware, async (req, res) => {
   }
 });
 
-// Alternar compartilhamento da wishlist
 router.post('/wishlist/toggle-share', authMiddleware, async (req, res) => {
   try {
     const { isShared } = req.body;
-
     await pool.query(
       `INSERT INTO wishlist_share_settings (user_id, is_shared)
        VALUES ($1, $2)
        ON CONFLICT (user_id) DO UPDATE SET is_shared = EXCLUDED.is_shared`,
       [req.userId, isShared]
     );
-
     res.json({ success: true, isShared });
   } catch (error) {
     console.error('Erro ao alternar compartilhamento:', error);
@@ -1256,7 +873,269 @@ router.post('/wishlist/toggle-share', authMiddleware, async (req, res) => {
   }
 });
 
-//teste de deploy backend
+// ================= LISTA DE COMPRAS =================
+router.get('/shopping-list', authMiddleware, async (req, res) => {
+  try {
+    const coupleId = await getCoupleId(req.userId);
+    const result = await pool.query(
+      `SELECT * FROM shopping_list_items 
+       WHERE user_id = $1 OR (is_shared = true AND couple_id = $2)
+       ORDER BY status ASC, created_at DESC`,
+      [req.userId, coupleId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar shopping list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
+router.post('/shopping-list', authMiddleware, async (req, res) => {
+  try {
+    const { name, quantity, price, link, image, status } = req.body;
+    const coupleId = await getCoupleId(req.userId);
+    const result = await pool.query(
+      `INSERT INTO shopping_list_items (user_id, couple_id, name, quantity, price, link, image, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [req.userId, coupleId, name, quantity || 1, price, link, image, status || 'pending']
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao criar item na shopping list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/shopping-list/:id/status', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, actualPrice } = req.body;
+    const result = await pool.query(
+      `UPDATE shopping_list_items 
+       SET status = $1, price = COALESCE($2, price), updated_at = NOW()
+       WHERE id = $3 AND user_id = $4
+       RETURNING *`,
+      [status, actualPrice, id, req.userId]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao atualizar status da shopping list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/shopping-list/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, quantity, price, link, image, status } = req.body;
+    const result = await pool.query(
+      `UPDATE shopping_list_items 
+       SET name = $1, quantity = $2, price = $3, link = $4, image = $5, status = $6, updated_at = NOW()
+       WHERE id = $7 AND user_id = $8
+       RETURNING *`,
+      [name, quantity, price, link, image, status, id, req.userId]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao atualizar item da shopping list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/shopping-list/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query(
+      `DELETE FROM shopping_list_items WHERE id = $1 AND user_id = $2`,
+      [id, req.userId]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao deletar item da shopping list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/shopping-list/checkout', authMiddleware, async (req, res) => {
+  try {
+    const { items, total, receiptImage, paymentMethod, responsible } = req.body;
+    const userId = responsible === 'me' ? req.userId : await getSpouseId(req.userId);
+    
+    const expense = await pool.query(
+      `INSERT INTO expenses (user_id, service, price, paymentmethod, due_date)
+       VALUES ($1, $2, $3, $4, NOW()) RETURNING id`,
+      [userId, 'Compra de Mercado', total, paymentMethod]
+    );
+    
+    await pool.query(
+      `INSERT INTO installments (expense_id, installment_number, amount, duedate, total_installments)
+       VALUES ($1, 1, $2, NOW(), 1)`,
+      [expense.rows[0].id, total]
+    );
+    
+    res.json({ success: true, expenseId: expense.rows[0].id });
+  } catch (error) {
+    console.error('Erro ao finalizar checkout:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================= TRANSPORTE DA VIAGEM =================
+router.post("/travel/:planId/transport", authMiddleware, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const transportData = req.body;
+    const planCheck = await pool.query(
+      `SELECT id FROM travel_plans 
+       WHERE id = $1 AND (owner_user_id = $2 OR is_shared = true)`,
+      [planId, req.userId]
+    );
+    if (planCheck.rows.length === 0) {
+      return res.status(403).json({ error: "Acesso negado a esta viagem" });
+    }
+    await pool.query(
+      `INSERT INTO travel_transport (travel_plan_id, user_id, transport_data, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (travel_plan_id) DO UPDATE 
+       SET transport_data = EXCLUDED.transport_data, updated_at = NOW()`,
+      [planId, req.userId, JSON.stringify(transportData)]
+    );
+    res.json({ success: true, message: "Transporte salvo com sucesso" });
+  } catch (error) {
+    console.error("Erro ao salvar transporte:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/travel/:planId/transport", authMiddleware, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const result = await pool.query(
+      `SELECT transport_data FROM travel_transport WHERE travel_plan_id = $1`,
+      [planId]
+    );
+    res.json(result.rows[0]?.transport_data || {});
+  } catch (error) {
+    console.error("Erro ao buscar transporte:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================= SERVIÇOS DA VIAGEM =================
+router.post("/travel/:planId/services", authMiddleware, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { title, description, value, bookingDate, usageDate, category, status } = req.body;
+    const planCheck = await pool.query(
+      `SELECT id FROM travel_plans 
+       WHERE id = $1 AND (owner_user_id = $2 OR is_shared = true)`,
+      [planId, req.userId]
+    );
+    if (planCheck.rows.length === 0) {
+      return res.status(403).json({ error: "Acesso negado a esta viagem" });
+    }
+    const result = await pool.query(
+      `INSERT INTO travel_services 
+       (travel_plan_id, user_id, title, description, value, booking_date, usage_date, category, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [planId, req.userId, title, description, value, bookingDate, usageDate, category, status || 'planejado']
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao criar serviço:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/travel/:planId/services", authMiddleware, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const result = await pool.query(
+      `SELECT * FROM travel_services 
+       WHERE travel_plan_id = $1 
+       ORDER BY created_at DESC`,
+      [planId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Erro ao listar serviços:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/travel/services/:serviceId", authMiddleware, async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const { title, description, value, bookingDate, usageDate, category, status } = req.body;
+    const result = await pool.query(
+      `UPDATE travel_services 
+       SET title = $1, description = $2, value = $3, 
+           booking_date = $4, usage_date = $5, 
+           category = $6, status = $7, updated_at = NOW()
+       WHERE id = $8 AND user_id = $9
+       RETURNING *`,
+      [title, description, value, bookingDate, usageDate, category, status, serviceId, req.userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Serviço não encontrado" });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao atualizar serviço:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/travel/services/:serviceId", authMiddleware, async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const result = await pool.query(
+      `DELETE FROM travel_services 
+       WHERE id = $1 AND user_id = $2`,
+      [serviceId, req.userId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Serviço não encontrado" });
+    }
+    res.json({ success: true, message: "Serviço removido" });
+  } catch (error) {
+    console.error("Erro ao deletar serviço:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================= DEV =================
+router.post("/dev/seed-demo", async (req, res) => {
+  try {
+    if (process.env.ALLOW_DEMO_SEED !== "true") {
+      return res.status(403).json({ error: "Seed demo desabilitado. Defina ALLOW_DEMO_SEED=true" });
+    }
+    const demoUsers = [
+      { name: "Ana Demo", email: "ana.demo@finance.local", password: "123456" },
+      { name: "Bruno Demo", email: "bruno.demo@finance.local", password: "123456" },
+      { name: "Carla Demo", email: "carla.demo@finance.local", password: "123456" },
+      { name: "Diego Demo", email: "diego.demo@finance.local", password: "123456" }
+    ];
+    const created = [];
+    for (const user of demoUsers) {
+      const exists = await pool.query("SELECT id FROM users WHERE email=$1", [user.email]);
+      if (exists.rows[0]) {
+        created.push({ ...user, id: exists.rows[0].id });
+        continue;
+      }
+      const hash = await bcrypt.hash(user.password, 10);
+      const result = await pool.query(
+        "INSERT INTO users (name, email, password_hash) VALUES ($1,$2,$3) RETURNING id",
+        [user.name, user.email, hash]
+      );
+      created.push({ ...user, id: result.rows[0].id });
+    }
+    res.json({ success: true, accounts: created.map((u) => ({ name: u.name, email: u.email, password: u.password })) });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao criar contas demo" });
+  }
+});
 
 export default router;
