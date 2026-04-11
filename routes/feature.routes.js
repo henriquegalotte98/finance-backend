@@ -51,6 +51,57 @@ async function tryFetchHotelPrices({ destination }) {
 }
 
 export async function ensureFeatureSchema() {
+
+  // Dentro da função ensureFeatureSchema(), adicione:
+
+  await pool.query(`
+  CREATE TABLE IF NOT EXISTS shopping_list_items (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    couple_id INTEGER REFERENCES couples(id) ON DELETE SET NULL,
+    name VARCHAR(255) NOT NULL,
+    quantity INTEGER DEFAULT 1,
+    price DECIMAL(10,2),
+    category VARCHAR(50) DEFAULT 'food',
+    priority VARCHAR(20) DEFAULT 'medium',
+    status VARCHAR(20) DEFAULT 'pending',
+    notes TEXT,
+    link TEXT,
+    image TEXT,
+    is_shared BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+  await pool.query(`
+  CREATE TABLE IF NOT EXISTS wishlist_items (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    couple_id INTEGER REFERENCES couples(id) ON DELETE SET NULL,
+    title VARCHAR(255) NOT NULL,
+    price DECIMAL(10,2),
+    category VARCHAR(50) DEFAULT 'other',
+    priority VARCHAR(20) DEFAULT 'medium',
+    link TEXT,
+    image TEXT,
+    notes TEXT,
+    is_shared BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+  await pool.query(`
+  CREATE TABLE IF NOT EXISTS wishlist_share_settings (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    is_shared BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS couples (
       id SERIAL PRIMARY KEY,
@@ -961,19 +1012,19 @@ router.post('/shopping-list/checkout', authMiddleware, async (req, res) => {
   try {
     const { items, total, receiptImage, paymentMethod, responsible } = req.body;
     const userId = responsible === 'me' ? req.userId : await getSpouseId(req.userId);
-    
+
     const expense = await pool.query(
       `INSERT INTO expenses (user_id, service, price, paymentmethod, due_date)
        VALUES ($1, $2, $3, $4, NOW()) RETURNING id`,
       [userId, 'Compra de Mercado', total, paymentMethod]
     );
-    
+
     await pool.query(
       `INSERT INTO installments (expense_id, installment_number, amount, duedate, total_installments)
        VALUES ($1, 1, $2, NOW(), 1)`,
       [expense.rows[0].id, total]
     );
-    
+
     res.json({ success: true, expenseId: expense.rows[0].id });
   } catch (error) {
     console.error('Erro ao finalizar checkout:', error);
