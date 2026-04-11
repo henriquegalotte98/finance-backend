@@ -1143,6 +1143,119 @@ router.delete("/travel/services/:serviceId", authMiddleware, async (req, res) =>
 
 );
 
+// backend/src/routes/feature.routes.js
+
+// ================= LISTA DE DESEJOS =================
+// Buscar todos os itens da wishlist
+router.get('/wishlist', authMiddleware, async (req, res) => {
+  try {
+    const coupleId = await getCoupleId(req.userId);
+    const result = await pool.query(
+      `SELECT * FROM wishlist_items 
+       WHERE user_id = $1 OR (is_shared = true AND couple_id = $2)
+       ORDER BY created_at DESC`,
+      [req.userId, coupleId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar wishlist:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Criar novo item na wishlist
+router.post('/wishlist', authMiddleware, async (req, res) => {
+  try {
+    const { title, price, link, image, notes } = req.body;
+    const coupleId = await getCoupleId(req.userId);
+
+    const result = await pool.query(
+      `INSERT INTO wishlist_items (user_id, couple_id, title, price, link, image, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [req.userId, coupleId, title, price, link, image, notes]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao criar item na wishlist:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Atualizar item da wishlist
+router.put('/wishlist/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, price, link, image, notes } = req.body;
+
+    const result = await pool.query(
+      `UPDATE wishlist_items 
+       SET title = $1, price = $2, link = $3, image = $4, notes = $5
+       WHERE id = $6 AND user_id = $7
+       RETURNING *`,
+      [title, price, link, image, notes, id, req.userId]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro ao atualizar item da wishlist:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Deletar item da wishlist
+router.delete('/wishlist/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query(
+      `DELETE FROM wishlist_items WHERE id = $1 AND user_id = $2`,
+      [id, req.userId]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao deletar item da wishlist:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Status de compartilhamento da wishlist
+router.get('/wishlist/share-status', authMiddleware, async (req, res) => {
+  try {
+    const coupleId = await getCoupleId(req.userId);
+    const result = await pool.query(
+      `SELECT is_shared FROM wishlist_share_settings 
+       WHERE user_id = $1`,
+      [req.userId]
+    );
+
+    const isShared = result.rows[0]?.is_shared || false;
+    const shareCode = isShared ? `WISH-${req.userId}-${Date.now()}` : null;
+
+    res.json({ isShared, shareCode });
+  } catch (error) {
+    console.error('Erro ao buscar status de compartilhamento:', error);
+    res.json({ isShared: false, shareCode: null });
+  }
+});
+
+// Alternar compartilhamento da wishlist
+router.post('/wishlist/toggle-share', authMiddleware, async (req, res) => {
+  try {
+    const { isShared } = req.body;
+
+    await pool.query(
+      `INSERT INTO wishlist_share_settings (user_id, is_shared)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET is_shared = EXCLUDED.is_shared`,
+      [req.userId, isShared]
+    );
+
+    res.json({ success: true, isShared });
+  } catch (error) {
+    console.error('Erro ao alternar compartilhamento:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 //teste de deploy backend
 
 
