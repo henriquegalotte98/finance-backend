@@ -440,6 +440,20 @@ app.get("/debug/db-check", async (req, res) => {
   }
 });
 
+app.get("/debug/check-table", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'shopping_list_share_settings'
+      );
+    `);
+    res.json({ exists: result.rows[0].exists });
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
+
 app.get("/debug/user", authMiddleware, async (req, res) => {
   res.json({ userId: req.userId });
 });
