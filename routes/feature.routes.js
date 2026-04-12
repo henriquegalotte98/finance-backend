@@ -403,6 +403,36 @@ router.post('/shopping-list/toggle-share', authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/shopping-list', authMiddleware, async (req, res) => {
+  try {
+    const coupleId = await getCoupleId(req.userId);
+
+    // Buscar itens do usuário E itens compartilhados com ele
+    const result = await pool.query(
+      `SELECT s.*, 
+        CASE 
+          WHEN s.user_id = $1 THEN 'owner'
+          ELSE 'shared'
+        END as ownership,
+        u.name as owner_name
+       FROM shopping_list_items s
+       LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.user_id = $1 
+          OR s.id IN (
+            SELECT sls.owner_user_id FROM shopping_list_shares sls 
+            WHERE sls.shared_with_user_id = $1
+          )
+          OR (s.is_shared = true AND s.couple_id = $2)
+       ORDER BY s.status ASC, s.created_at DESC`,
+      [req.userId, coupleId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar shopping list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 router.post("/couple/living-together", authMiddleware, async (req, res) => {
   try {
