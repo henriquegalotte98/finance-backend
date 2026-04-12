@@ -64,6 +64,85 @@ app.get("/", (_req, res) => res.status(200).json({ status: "ok", message: "API f
 app.get("/healthz", (_req, res) => res.status(200).json({ status: "ok", timestamp: new Date().toISOString() }));
 app.get("/ping", (_req, res) => res.status(200).send("pong"));
 
+// ================= DEBUG - Informações do Banco =================
+app.get("/debug/db-info", async (req, res) => {
+  try {
+    const dbName = await pool.query("SELECT current_database() as name");
+    const tables = await pool.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+      ORDER BY table_name
+    `);
+    res.json({
+      database: dbName.rows[0],
+      tables: tables.rows.map(t => t.table_name)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================= ADMIN - Criar tabelas diretamente =================
+app.post("/admin/create-tables", async (req, res) => {
+  try {
+    // Criar tabela shopping_list_items
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shopping_list_items (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        couple_id INTEGER,
+        name VARCHAR(255) NOT NULL,
+        quantity INTEGER DEFAULT 1,
+        price DECIMAL(10,2),
+        category VARCHAR(50) DEFAULT 'food',
+        priority VARCHAR(20) DEFAULT 'medium',
+        status VARCHAR(20) DEFAULT 'pending',
+        notes TEXT,
+        link TEXT,
+        image TEXT,
+        is_shared BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Criar tabela wishlist_items
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wishlist_items (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        couple_id INTEGER,
+        title VARCHAR(255) NOT NULL,
+        price DECIMAL(10,2),
+        category VARCHAR(50) DEFAULT 'other',
+        priority VARCHAR(20) DEFAULT 'medium',
+        link TEXT,
+        image TEXT,
+        notes TEXT,
+        is_shared BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Criar tabela wishlist_share_settings
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wishlist_share_settings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL UNIQUE,
+        is_shared BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    res.json({ success: true, message: "Tabelas criadas com sucesso!" });
+  } catch (error) {
+    console.error("Erro ao criar tabelas:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ================= CLOUDINARY =================
 if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
   console.error("❌ Cloudinary não configurado!");
@@ -140,7 +219,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
-// ================= EXPENSES - CORRIGIDO =================
+// ================= EXPENSES =================
 app.post("/expenses", authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
@@ -155,12 +234,10 @@ app.post("/expenses", authMiddleware, async (req, res) => {
     }
 
     const originalPrice = Number(price);
-    // CORRIGIDO: Verificar se é recorrência (numberTimes > 1 OU recurrence === 'monthly')
     const isRecurring = (numberTimes && numberTimes > 1) || recurrence === 'monthly';
 
     await client.query("BEGIN");
 
-    // Criar a despesa principal
     const expense = await client.query(
       `INSERT INTO expenses 
        (user_id, service, price, paymentmethod, numbertimes, recurrence)
@@ -175,7 +252,6 @@ app.post("/expenses", authMiddleware, async (req, res) => {
     let installmentsToCreate = [];
     
     if (isRecurring) {
-      // RECORRÊNCIA: Criar 'numberTimes' parcelas
       const numberOfOccurrences = numberTimes || 12;
       console.log(`🔄 Criando ${numberOfOccurrences} parcelas de R$ ${originalPrice.toFixed(2)}`);
       
@@ -183,7 +259,6 @@ app.post("/expenses", authMiddleware, async (req, res) => {
         let currentDate = new Date(startDate);
         currentDate.setMonth(startDate.getMonth() + i);
         
-        // Ajustar para o último dia do mês se necessário
         if (currentDate.getDate() !== startDate.getDate()) {
           currentDate.setDate(0);
           currentDate.setDate(currentDate.getDate());
@@ -198,7 +273,6 @@ app.post("/expenses", authMiddleware, async (req, res) => {
         console.log(`  📅 Parcela ${i+1}: ${currentDate.toISOString().split('T')[0]} - R$ ${originalPrice.toFixed(2)}`);
       }
     } else {
-      // DESPESA ÚNICA
       installmentsToCreate.push({
         number: 1,
         amount: originalPrice,
@@ -206,7 +280,6 @@ app.post("/expenses", authMiddleware, async (req, res) => {
       });
     }
     
-    // Inserir as parcelas
     for (const inst of installmentsToCreate) {
       await client.query(
         `INSERT INTO installments 
