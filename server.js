@@ -440,6 +440,10 @@ app.get("/debug/db-check", async (req, res) => {
   }
 });
 
+app.get("/debug/user", authMiddleware, async (req, res) => {
+  res.json({ userId: req.userId });
+});
+
 app.get("/dashboard/monthly", async (req, res) => {
   try {
     const result = await pool.query(`
