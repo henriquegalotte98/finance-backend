@@ -68,4 +68,44 @@ router.post("/join", async (req, res) => {
 
 })
 
+// ================= SAIR DO CASAL =================
+router.delete('/leave', authMiddleware, async (req, res) => {
+  try {
+    // Verificar se o usuário está em um casal
+    const memberCheck = await pool.query(
+      "SELECT couple_id, role FROM couple_members WHERE user_id = $1",
+      [req.userId]
+    );
+    
+    if (memberCheck.rows.length === 0) {
+      return res.status(400).json({ error: "Usuário não está em um casal" });
+    }
+    
+    const coupleId = memberCheck.rows[0].couple_id;
+    const role = memberCheck.rows[0].role;
+    
+    // Remover o membro
+    await pool.query(
+      "DELETE FROM couple_members WHERE user_id = $1",
+      [req.userId]
+    );
+    
+    // Verificar se ainda há membros no casal
+    const remainingMembers = await pool.query(
+      "SELECT COUNT(*) FROM couple_members WHERE couple_id = $1",
+      [coupleId]
+    );
+    
+    // Se não houver mais membros, deletar o casal
+    if (parseInt(remainingMembers.rows[0].count) === 0) {
+      await pool.query("DELETE FROM couples WHERE id = $1", [coupleId]);
+    }
+    
+    res.json({ success: true, message: "Você saiu do casal" });
+  } catch (error) {
+    console.error("Erro ao sair do casal:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router
