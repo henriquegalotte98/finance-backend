@@ -106,7 +106,7 @@ app.post("/admin/create-tables", async (req, res) => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
     // Criar tabela wishlist_items
     await pool.query(`
       CREATE TABLE IF NOT EXISTS wishlist_items (
@@ -125,7 +125,7 @@ app.post("/admin/create-tables", async (req, res) => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
     // Criar tabela wishlist_share_settings
     await pool.query(`
       CREATE TABLE IF NOT EXISTS wishlist_share_settings (
@@ -135,7 +135,7 @@ app.post("/admin/create-tables", async (req, res) => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
     res.json({ success: true, message: "Tabelas criadas com sucesso!" });
   } catch (error) {
     console.error("Erro ao criar tabelas:", error);
@@ -248,29 +248,29 @@ app.post("/expenses", authMiddleware, async (req, res) => {
     const expenseId = expense.rows[0].id;
     const startDate = new Date(dueDate);
     startDate.setHours(12, 0, 0, 0);
-    
+
     let installmentsToCreate = [];
-    
+
     if (isRecurring) {
       const numberOfOccurrences = numberTimes || 12;
       console.log(`🔄 Criando ${numberOfOccurrences} parcelas de R$ ${originalPrice.toFixed(2)}`);
-      
+
       for (let i = 0; i < numberOfOccurrences; i++) {
         let currentDate = new Date(startDate);
         currentDate.setMonth(startDate.getMonth() + i);
-        
+
         if (currentDate.getDate() !== startDate.getDate()) {
           currentDate.setDate(0);
           currentDate.setDate(currentDate.getDate());
         }
-        
+
         installmentsToCreate.push({
           number: i + 1,
           amount: originalPrice,
           dueDate: currentDate
         });
-        
-        console.log(`  📅 Parcela ${i+1}: ${currentDate.toISOString().split('T')[0]} - R$ ${originalPrice.toFixed(2)}`);
+
+        console.log(`  📅 Parcela ${i + 1}: ${currentDate.toISOString().split('T')[0]} - R$ ${originalPrice.toFixed(2)}`);
       }
     } else {
       installmentsToCreate.push({
@@ -279,7 +279,7 @@ app.post("/expenses", authMiddleware, async (req, res) => {
         dueDate: startDate
       });
     }
-    
+
     for (const inst of installmentsToCreate) {
       await client.query(
         `INSERT INTO installments 
@@ -288,13 +288,13 @@ app.post("/expenses", authMiddleware, async (req, res) => {
         [expenseId, inst.number, inst.amount, inst.dueDate, installmentsToCreate.length]
       );
     }
-    
+
     await client.query("COMMIT");
     console.log(`✅ ${installmentsToCreate.length} parcelas criadas com sucesso!`);
-    res.json({ 
-      message: "Despesa criada com sucesso", 
+    res.json({
+      message: "Despesa criada com sucesso",
       expenseId,
-      installments: installmentsToCreate.length 
+      installments: installmentsToCreate.length
     });
 
   } catch (err) {
@@ -420,6 +420,23 @@ app.get("/dashboard/alerts", async (_req, res) => {
     res.json(result.rows);
   } catch {
     res.json([]);
+  }
+});
+
+app.get("/debug/db-check", async (req, res) => {
+  try {
+    const tables = await pool.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+      ORDER BY table_name
+    `);
+    res.json({
+      database: process.env.DATABASE_URL?.substring(0, 50),
+      tables: tables.rows.map(t => t.table_name)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
