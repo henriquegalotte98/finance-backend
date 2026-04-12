@@ -53,7 +53,26 @@ async function tryFetchHotelPrices({ destination }) {
 export async function ensureFeatureSchema() {
 
   // Dentro da função ensureFeatureSchema(), adicione:
+  await pool.query(`
+  CREATE TABLE IF NOT EXISTS shopping_list_shares (
+    id SERIAL PRIMARY KEY,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    shared_with_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    share_code VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_user_id, shared_with_user_id)
+  );
+`);
 
+  await pool.query(`
+  CREATE TABLE IF NOT EXISTS shopping_list_share_settings (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    is_shared BOOLEAN DEFAULT FALSE,
+    share_code VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+`);
   await pool.query(`
   CREATE TABLE IF NOT EXISTS shopping_list_items (
     id SERIAL PRIMARY KEY,
