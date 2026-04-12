@@ -6,7 +6,11 @@ console.log("DB URL configurada:", !!process.env.DATABASE_URL);
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  // Adicionar configurações de timeout
+  connectionTimeoutMillis: 30000,
+  idleTimeoutMillis: 30000,
+  max: 20, // Número máximo de clientes no pool
 });
 
 // Testar conexão

@@ -49,6 +49,12 @@ app.use((req, res, next) => {
   next();
 });
 
+
+// Tratamento de erros de conexão
+pool.on('error', (err) => {
+  console.error('❌ Erro inesperado no pool do banco:', err);
+});
+
 // ================= MIDDLEWARE =================
 app.use(express.json());
 app.use(bodyParser.json());

@@ -424,28 +424,17 @@ router.post('/shopping-list/toggle-share', authMiddleware, async (req, res) => {
 
 router.get('/shopping-list', authMiddleware, async (req, res) => {
   try {
-    const coupleId = await getCoupleId(req.userId);
-
-    // Buscar itens do usuário E itens compartilhados com ele
-    const result = await pool.query(
-      `SELECT s.*, 
-        CASE 
-          WHEN s.user_id = $1 THEN 'owner'
-          ELSE 'shared'
-        END as ownership,
-        u.name as owner_name
-       FROM shopping_list_items s
-       LEFT JOIN users u ON u.id = s.user_id
-       WHERE s.user_id = $1 
-          OR s.id IN (
-            SELECT sls.owner_user_id FROM shopping_list_shares sls 
-            WHERE sls.shared_with_user_id = $1
-          )
-          OR (s.is_shared = true AND s.couple_id = $2)
-       ORDER BY s.status ASC, s.created_at DESC`,
-      [req.userId, coupleId]
+    // Adicionar timeout de 10 segundos
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Query timeout')), 10000)
     );
 
+    const queryPromise = pool.query(
+      `SELECT * FROM shopping_list_items WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.userId]
+    );
+
+    const result = await Promise.race([queryPromise, timeoutPromise]);
     res.json(result.rows);
   } catch (error) {
     console.error('Erro ao buscar shopping list:', error);
