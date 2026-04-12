@@ -364,6 +364,46 @@ router.get("/couple/me", authMiddleware, async (req, res) => {
   }
 });
 
+// ================= SHOPPING LIST SHARE STATUS =================
+router.get('/shopping-list/share-status', authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT is_shared, share_code FROM shopping_list_share_settings 
+       WHERE user_id = $1`,
+      [req.userId]
+    );
+
+    const isShared = result.rows[0]?.is_shared || false;
+    const shareCode = result.rows[0]?.share_code || null;
+
+    res.json({ isShared, shareCode });
+  } catch (error) {
+    console.error('Erro ao buscar status de compartilhamento:', error);
+    res.json({ isShared: false, shareCode: null });
+  }
+});
+
+router.post('/shopping-list/toggle-share', authMiddleware, async (req, res) => {
+  try {
+    const { isShared } = req.body;
+    const shareCode = isShared ? `SHOP-${req.userId}-${Date.now()}` : null;
+
+    await pool.query(
+      `INSERT INTO shopping_list_share_settings (user_id, is_shared, share_code)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE 
+       SET is_shared = EXCLUDED.is_shared, share_code = EXCLUDED.share_code`,
+      [req.userId, isShared, shareCode]
+    );
+
+    res.json({ success: true, isShared, shareCode });
+  } catch (error) {
+    console.error('Erro ao alternar compartilhamento:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 router.post("/couple/living-together", authMiddleware, async (req, res) => {
   try {
     const { livingTogether } = req.body;
