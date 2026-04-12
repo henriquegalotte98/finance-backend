@@ -234,6 +234,60 @@ export async function ensureFeatureSchema() {
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
+  // Dentro da função ensureFeatureSchema(), antes do último `});`
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shopping_list_items (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      couple_id INTEGER REFERENCES couples(id) ON DELETE SET NULL,
+      name VARCHAR(255) NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      price DECIMAL(10,2),
+      category VARCHAR(50) DEFAULT 'food',
+      priority VARCHAR(20) DEFAULT 'medium',
+      status VARCHAR(20) DEFAULT 'pending',
+      notes TEXT,
+      link TEXT,
+      image TEXT,
+      is_shared BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wishlist_items (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      couple_id INTEGER REFERENCES couples(id) ON DELETE SET NULL,
+      title VARCHAR(255) NOT NULL,
+      price DECIMAL(10,2),
+      category VARCHAR(50) DEFAULT 'other',
+      priority VARCHAR(20) DEFAULT 'medium',
+      link TEXT,
+      image TEXT,
+      notes TEXT,
+      is_shared BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wishlist_share_settings (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      is_shared BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Índices
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_shopping_list_user ON shopping_list_items(user_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_shopping_list_couple ON shopping_list_items(couple_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wishlist_items_couple ON wishlist_items(couple_id);`);
 }
 
 async function getCoupleId(userId) {
