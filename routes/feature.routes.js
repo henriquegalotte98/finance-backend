@@ -422,22 +422,58 @@ router.post('/shopping-list/toggle-share', authMiddleware, async (req, res) => {
   }
 });
 
+// Atualizar a rota para aceitar list_id como parâmetro
 router.get('/shopping-list', authMiddleware, async (req, res) => {
   try {
-    // Adicionar timeout de 10 segundos
+    const { list_id } = req.query;
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Query timeout')), 10000)
     );
 
-    const queryPromise = pool.query(
-      `SELECT * FROM shopping_list_items WHERE user_id = $1 ORDER BY created_at DESC`,
-      [req.userId]
-    );
+    let queryPromise;
+    if (list_id) {
+      queryPromise = pool.query(
+        `SELECT * FROM shopping_list_items 
+         WHERE user_id = $1 AND list_id = $2 
+         ORDER BY created_at DESC`,
+        [req.userId, list_id]
+      );
+    } else {
+      queryPromise = pool.query(
+        `SELECT * FROM shopping_list_items WHERE user_id = $1 ORDER BY created_at DESC`,
+        [req.userId]
+      );
+    }
 
     const result = await Promise.race([queryPromise, timeoutPromise]);
     res.json(result.rows);
   } catch (error) {
     console.error('Erro ao buscar shopping list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Deletar uma lista e todos os itens
+router.delete('/shopping-lists/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query(`DELETE FROM shopping_lists WHERE id = $1 AND user_id = $2`, [id, req.userId]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao deletar lista:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Adicione no backend
+router.get('/shopping-lists', authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM shopping_lists WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.userId]
+    );
+    res.json(result.rows);
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
