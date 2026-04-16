@@ -57,6 +57,7 @@ export async function ensureFeatureSchema() {
     CREATE TABLE IF NOT EXISTS shopping_lists (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      couple_id INTEGER REFERENCES couples(id) ON DELETE SET NULL,
       name VARCHAR(255) NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -103,8 +104,9 @@ export async function ensureFeatureSchema() {
   );
 `);
 
-  // Ensure list_id column exists if table is already created
+  // Ensure columns exist if table is already created
   await pool.query(`ALTER TABLE shopping_list_items ADD COLUMN IF NOT EXISTS list_id INTEGER REFERENCES shopping_lists(id) ON DELETE CASCADE;`);
+  await pool.query(`ALTER TABLE shopping_lists ADD COLUMN IF NOT EXISTS couple_id INTEGER REFERENCES couples(id) ON DELETE SET NULL;`);
 
   await pool.query(`
   CREATE TABLE IF NOT EXISTS wishlist_items (
@@ -439,22 +441,28 @@ router.post('/shopping-list/toggle-share', authMiddleware, async (req, res) => {
 router.get('/shopping-list', authMiddleware, async (req, res) => {
   try {
     const { list_id } = req.query;
+    const coupleId = await getCoupleId(req.userId);
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Query timeout')), 10000)
     );
 
     let queryPromise;
     if (list_id) {
+      // Itens de uma lista específica: visible se você for o dono ou se for do seu casal
       queryPromise = pool.query(
-        `SELECT * FROM shopping_list_items 
-         WHERE user_id = $1 AND list_id = $2 
-         ORDER BY created_at DESC`,
-        [req.userId, list_id]
+        `SELECT sli.* FROM shopping_list_items sli
+         LEFT JOIN shopping_lists sl ON sl.id = sli.list_id
+         WHERE (sli.user_id = $1 OR sli.couple_id = $2 OR sl.couple_id = $2)
+         AND sli.list_id = $3
+         ORDER BY sli.created_at DESC`,
+        [req.userId, coupleId, list_id]
       );
     } else {
       queryPromise = pool.query(
-        `SELECT * FROM shopping_list_items WHERE user_id = $1 ORDER BY created_at DESC`,
-        [req.userId]
+        `SELECT * FROM shopping_list_items 
+         WHERE user_id = $1 OR (is_shared = true AND couple_id = $2)
+         ORDER BY created_at DESC`,
+        [req.userId, coupleId]
       );
     }
 
@@ -466,12 +474,15 @@ router.get('/shopping-list', authMiddleware, async (req, res) => {
   }
 });
 
-// Obter todas as listas do usuário
+// Obter todas as listas do usuário ou do casal
 router.get('/shopping-lists', authMiddleware, async (req, res) => {
   try {
+    const coupleId = await getCoupleId(req.userId);
     const result = await pool.query(
-      `SELECT * FROM shopping_lists WHERE user_id = $1 ORDER BY created_at DESC`,
-      [req.userId]
+      `SELECT * FROM shopping_lists 
+       WHERE user_id = $1 OR couple_id = $2 
+       ORDER BY created_at DESC`,
+      [req.userId, coupleId]
     );
     res.json(result.rows);
   } catch (error) {
@@ -479,13 +490,14 @@ router.get('/shopping-lists', authMiddleware, async (req, res) => {
   }
 });
 
-// Criar uma nova lista
+// Criar uma nova lista vinculada ao casal
 router.post('/shopping-lists', authMiddleware, async (req, res) => {
   try {
     const { name } = req.body;
+    const coupleId = await getCoupleId(req.userId);
     const result = await pool.query(
-      `INSERT INTO shopping_lists (user_id, name) VALUES ($1, $2) RETURNING *`,
-      [req.userId, name]
+      `INSERT INTO shopping_lists (user_id, couple_id, name) VALUES ($1, $2, $3) RETURNING *`,
+      [req.userId, coupleId, name]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -1095,10 +1107,10 @@ router.post('/wishlist', authMiddleware, async (req, res) => {
     const { title, price, link, image, notes } = req.body;
     const coupleId = await getCoupleId(req.userId);
     const result = await pool.query(
-      `INSERT INTO wishlist_items (user_id, couple_id, title, price, link, image, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO wishlist_items (user_id, couple_id, title, price, link, image, notes, is_shared)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [req.userId, coupleId, title, price, link, image, notes]
+      [req.userId, coupleId, title, price, link, image, notes, true]
     );
     res.json(result.rows[0]);
   } catch (error) {
