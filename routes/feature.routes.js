@@ -479,9 +479,11 @@ router.get('/shopping-lists', authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
     const result = await pool.query(
-      `SELECT * FROM shopping_lists 
-       WHERE user_id = $1 OR couple_id = $2 
-       ORDER BY created_at DESC`,
+      `SELECT sl.*, u.name as creator_name 
+       FROM shopping_lists sl
+       LEFT JOIN users u ON u.id = sl.user_id
+       WHERE sl.user_id = $1 OR sl.couple_id = $2 
+       ORDER BY sl.created_at DESC`,
       [req.userId, coupleId]
     );
     res.json(result.rows);
