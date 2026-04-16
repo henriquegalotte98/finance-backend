@@ -1092,14 +1092,35 @@ router.get('/wishlist', authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
     const result = await pool.query(
-      `SELECT * FROM wishlist_items 
-       WHERE user_id = $1 OR (is_shared = true AND couple_id = $2)
-       ORDER BY created_at DESC`,
+      `SELECT wi.*, u.name as creator_name 
+       FROM wishlist_items wi
+       JOIN users u ON u.id = wi.user_id
+       WHERE wi.user_id = $1 OR (wi.is_shared = true AND wi.couple_id = $2)
+       ORDER BY wi.created_at DESC`,
       [req.userId, coupleId]
     );
     res.json(result.rows);
   } catch (error) {
     console.error('Erro ao buscar wishlist:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Buscar nome do parceiro/a
+router.get('/features/couple/member-name', authMiddleware, async (req, res) => {
+  try {
+    const coupleId = await getCoupleId(req.userId);
+    if (!coupleId) return res.json({ name: null });
+    
+    const result = await pool.query(
+      `SELECT u.name FROM users u
+       JOIN couple_members cm ON cm.user_id = u.id
+       WHERE cm.couple_id = $1 AND cm.user_id != $2
+       LIMIT 1`,
+      [coupleId, req.userId]
+    );
+    res.json({ name: result.rows[0]?.name || null });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -1125,12 +1146,14 @@ router.put('/wishlist/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, price, link, image, notes } = req.body;
+    const coupleId = await getCoupleId(req.userId);
+    
     const result = await pool.query(
       `UPDATE wishlist_items 
        SET title = $1, price = $2, link = $3, image = $4, notes = $5, updated_at = NOW()
-       WHERE id = $6 AND user_id = $7
+       WHERE id = $6 AND (user_id = $7 OR couple_id = $8)
        RETURNING *`,
-      [title, price, link, image, notes, id, req.userId]
+      [title, price, link, image, notes, id, req.userId, coupleId]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -1142,9 +1165,11 @@ router.put('/wishlist/:id', authMiddleware, async (req, res) => {
 router.delete('/wishlist/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
+    const coupleId = await getCoupleId(req.userId);
+    
     await pool.query(
-      `DELETE FROM wishlist_items WHERE id = $1 AND user_id = $2`,
-      [id, req.userId]
+      `DELETE FROM wishlist_items WHERE id = $1 AND (user_id = $2 OR couple_id = $3)`,
+      [id, req.userId, coupleId]
     );
     res.json({ success: true });
   } catch (error) {
