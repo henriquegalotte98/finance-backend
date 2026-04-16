@@ -54,15 +54,24 @@ export async function ensureFeatureSchema() {
 
   // Dentro da função ensureFeatureSchema(), adicione:
   await pool.query(`
-  CREATE TABLE IF NOT EXISTS shopping_list_shares (
-    id SERIAL PRIMARY KEY,
-    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    shared_with_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    share_code VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(owner_user_id, shared_with_user_id)
-  );
-`);
+    CREATE TABLE IF NOT EXISTS shopping_lists (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shopping_list_shares (
+      id SERIAL PRIMARY KEY,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      shared_with_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      share_code VARCHAR(100) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(owner_user_id, shared_with_user_id)
+    );
+  `);
 
   await pool.query(`
   CREATE TABLE IF NOT EXISTS shopping_list_share_settings (
@@ -77,6 +86,7 @@ export async function ensureFeatureSchema() {
   CREATE TABLE IF NOT EXISTS shopping_list_items (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    list_id INTEGER REFERENCES shopping_lists(id) ON DELETE CASCADE,
     couple_id INTEGER REFERENCES couples(id) ON DELETE SET NULL,
     name VARCHAR(255) NOT NULL,
     quantity INTEGER DEFAULT 1,
@@ -92,6 +102,9 @@ export async function ensureFeatureSchema() {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+  // Ensure list_id column exists if table is already created
+  await pool.query(`ALTER TABLE shopping_list_items ADD COLUMN IF NOT EXISTS list_id INTEGER REFERENCES shopping_lists(id) ON DELETE CASCADE;`);
 
   await pool.query(`
   CREATE TABLE IF NOT EXISTS wishlist_items (
@@ -453,6 +466,33 @@ router.get('/shopping-list', authMiddleware, async (req, res) => {
   }
 });
 
+// Obter todas as listas do usuário
+router.get('/shopping-lists', authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM shopping_lists WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.userId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Criar uma nova lista
+router.post('/shopping-lists', authMiddleware, async (req, res) => {
+  try {
+    const { name } = req.body;
+    const result = await pool.query(
+      `INSERT INTO shopping_lists (user_id, name) VALUES ($1, $2) RETURNING *`,
+      [req.userId, name]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Deletar uma lista e todos os itens
 router.delete('/shopping-lists/:id', authMiddleware, async (req, res) => {
   try {
@@ -465,8 +505,8 @@ router.delete('/shopping-lists/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Adicione no backend
-router.get('/shopping-lists', authMiddleware, async (req, res) => {
+// Alias singular para legibilidade se necessário
+router.get('/shopping-list/all', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT * FROM shopping_lists WHERE user_id = $1 ORDER BY created_at DESC`,
@@ -1150,13 +1190,13 @@ router.get('/shopping-list', authMiddleware, async (req, res) => {
 
 router.post('/shopping-list', authMiddleware, async (req, res) => {
   try {
-    const { name, quantity, price, link, image, status } = req.body;
+    const { name, quantity, price, link, image, status, list_id } = req.body;
     const coupleId = await getCoupleId(req.userId);
     const result = await pool.query(
-      `INSERT INTO shopping_list_items (user_id, couple_id, name, quantity, price, link, image, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO shopping_list_items (user_id, couple_id, list_id, name, quantity, price, link, image, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [req.userId, coupleId, name, quantity || 1, price, link, image, status || 'pending']
+      [req.userId, coupleId, list_id || null, name, quantity || 1, price, link, image, status || 'pending']
     );
     res.json(result.rows[0]);
   } catch (error) {
