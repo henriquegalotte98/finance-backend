@@ -933,9 +933,11 @@ router.get("/savings", authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
     const result = await pool.query(
-      `SELECT * FROM savings_wallets
-       WHERE owner_user_id=$1 OR (is_shared=TRUE AND couple_id=$2)
-       ORDER BY created_at DESC`,
+      `SELECT sw.*, u.name as creator_name 
+       FROM savings_wallets sw
+       JOIN users u ON u.id = sw.owner_user_id
+       WHERE sw.owner_user_id=$1 OR (sw.is_shared=TRUE AND sw.couple_id=$2)
+       ORDER BY sw.created_at DESC`,
       [req.userId, coupleId]
     );
     res.json(result.rows);
