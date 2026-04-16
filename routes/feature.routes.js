@@ -1223,12 +1223,14 @@ router.patch('/shopping-list/:id/status', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { status, actualPrice } = req.body;
+    const coupleId = await getCoupleId(req.userId);
+    
     const result = await pool.query(
       `UPDATE shopping_list_items 
        SET status = $1, price = COALESCE($2, price), updated_at = NOW()
-       WHERE id = $3 AND user_id = $4
+       WHERE id = $3 AND (user_id = $4 OR couple_id = $5)
        RETURNING *`,
-      [status, actualPrice, id, req.userId]
+      [status, actualPrice, id, req.userId, coupleId]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -1241,12 +1243,14 @@ router.put('/shopping-list/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, quantity, price, link, image, status } = req.body;
+    const coupleId = await getCoupleId(req.userId);
+    
     const result = await pool.query(
       `UPDATE shopping_list_items 
        SET name = $1, quantity = $2, price = $3, link = $4, image = $5, status = $6, updated_at = NOW()
-       WHERE id = $7 AND user_id = $8
+       WHERE id = $7 AND (user_id = $8 OR couple_id = $9)
        RETURNING *`,
-      [name, quantity, price, link, image, status, id, req.userId]
+      [name, quantity, price, link, image, status, id, req.userId, coupleId]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -1258,9 +1262,11 @@ router.put('/shopping-list/:id', authMiddleware, async (req, res) => {
 router.delete('/shopping-list/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
+    const coupleId = await getCoupleId(req.userId);
+    
     await pool.query(
-      `DELETE FROM shopping_list_items WHERE id = $1 AND user_id = $2`,
-      [id, req.userId]
+      `DELETE FROM shopping_list_items WHERE id = $1 AND (user_id = $2 OR couple_id = $3)`,
+      [id, req.userId, coupleId]
     );
     res.json({ success: true });
   } catch (error) {
