@@ -1107,7 +1107,7 @@ router.get('/wishlist', authMiddleware, async (req, res) => {
 });
 
 // Buscar nome do parceiro/a
-router.get('/features/couple/member-name', authMiddleware, async (req, res) => {
+router.get('/couple/member-name', authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
     if (!coupleId) return res.json({ name: null });
