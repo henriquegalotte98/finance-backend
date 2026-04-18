@@ -312,23 +312,6 @@ app.post("/expenses", authMiddleware, async (req, res) => {
   }
 });
 
-// GET - Buscar nome do parceiro
-app.get("/couple/spouse-name", authMiddleware, async (req, res) => {
-  try {
-    const userId = req.userId;
-    const result = await pool.query(
-      `SELECT u.name FROM users u
-       JOIN couple_members cm ON u.id = cm.user_id
-       WHERE cm.couple_id = (SELECT couple_id FROM couple_members WHERE user_id = $1)
-       AND cm.user_id != $1 LIMIT 1`,
-      [userId]
-    );
-    res.json({ name: result.rows[0]?.name || null });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.get("/expenses/month/:year/:month", authMiddleware, async (req, res) => {
   try {
     const { year, month } = req.params;
