@@ -246,9 +246,9 @@ app.post("/expenses", authMiddleware, async (req, res) => {
 
     const expense = await client.query(
       `INSERT INTO expenses 
-       (user_id, service, price, paymentmethod, numbertimes, recurrence)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [userId, service, originalPrice, paymentMethod, numberTimes || 1, recurrence || 'none']
+       (user_id, service, price, paymentmethod, numbertimes, recurrence, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [userId, service, originalPrice, paymentMethod, numberTimes || 1, recurrence || 'none', userId]
     );
 
     const expenseId = expense.rows[0].id;
@@ -289,9 +289,9 @@ app.post("/expenses", authMiddleware, async (req, res) => {
     for (const inst of installmentsToCreate) {
       await client.query(
         `INSERT INTO installments 
-         (expense_id, installment_number, amount, duedate, total_installments)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [expenseId, inst.number, inst.amount, inst.dueDate, installmentsToCreate.length]
+         (expense_id, installment_number, amount, duedate, total_installments, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [expenseId, inst.number, inst.amount, inst.dueDate, installmentsToCreate.length, userId]
       );
     }
 
@@ -312,16 +312,35 @@ app.post("/expenses", authMiddleware, async (req, res) => {
   }
 });
 
+// GET - Buscar nome do parceiro
+app.get("/couple/spouse-name", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const result = await pool.query(
+      `SELECT u.name FROM users u
+       JOIN couple_members cm ON u.id = cm.user_id
+       WHERE cm.couple_id = (SELECT couple_id FROM couple_members WHERE user_id = $1)
+       AND cm.user_id != $1 LIMIT 1`,
+      [userId]
+    );
+    res.json({ name: result.rows[0]?.name || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/expenses/month/:year/:month", authMiddleware, async (req, res) => {
   try {
     const { year, month } = req.params;
     const userId = req.userId;
 
     const result = await pool.query(
-      `SELECT i.id, i.installment_number, i.amount, i.duedate,
-              e.service, e.price, e.paymentmethod, e.recurrence, e.id as expense_id
+      `SELECT i.id, i.installment_number, i.amount, i.duedate, i.updated_at,
+              e.service, e.price, e.paymentmethod, e.recurrence, e.id as expense_id,
+              u.name as updated_by_name
        FROM installments i
        JOIN expenses e ON e.id = i.expense_id
+       LEFT JOIN users u ON u.id = i.updated_by
        WHERE e.user_id = $1
        AND i.duedate >= DATE_TRUNC('month', TO_DATE($2 || '-' || $3 || '-01', 'YYYY-MM-DD'))
        AND i.duedate < DATE_TRUNC('month', TO_DATE($2 || '-' || $3 || '-01', 'YYYY-MM-DD')) + INTERVAL '1 month'
@@ -330,6 +349,46 @@ app.get("/expenses/month/:year/:month", authMiddleware, async (req, res) => {
     );
 
     console.log(`📊 Carregadas ${result.rows.length} despesas para ${month}/${year}`);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/expenses/partner/month/:year/:month", authMiddleware, async (req, res) => {
+  try {
+    const { year, month } = req.params;
+    const userId = req.userId;
+
+    // Buscar o ID do cônjuge
+    const spouseResult = await pool.query(
+      `SELECT user_id FROM couple_members 
+       WHERE couple_id = (SELECT couple_id FROM couple_members WHERE user_id = $1)
+       AND user_id != $1 LIMIT 1`,
+      [userId]
+    );
+
+    if (spouseResult.rows.length === 0) {
+      return res.json([]);
+    }
+
+    const spouseId = spouseResult.rows[0].user_id;
+
+    const result = await pool.query(
+      `SELECT i.id, i.installment_number, i.amount, i.duedate, i.updated_at,
+              e.service, e.price, e.paymentmethod, e.recurrence, e.id as expense_id,
+              u.name as updated_by_name
+       FROM installments i
+       JOIN expenses e ON e.id = i.expense_id
+       LEFT JOIN users u ON u.id = i.updated_by
+       WHERE e.user_id = $1
+       AND i.duedate >= DATE_TRUNC('month', TO_DATE($2 || '-' || $3 || '-01', 'YYYY-MM-DD'))
+       AND i.duedate < DATE_TRUNC('month', TO_DATE($2 || '-' || $3 || '-01', 'YYYY-MM-DD')) + INTERVAL '1 month'
+       ORDER BY i.duedate`,
+      [spouseId, year, month]
+    );
+
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -346,7 +405,11 @@ app.put("/expenses/:id", authMiddleware, async (req, res) => {
     const checkResult = await pool.query(
       `SELECT i.expense_id FROM installments i
        JOIN expenses e ON e.id = i.expense_id
-       WHERE i.id = $1 AND e.user_id = $2`,
+       WHERE i.id = $1 
+       AND (e.user_id = $2 OR e.user_id IN (
+         SELECT user_id FROM couple_members 
+         WHERE couple_id = (SELECT couple_id FROM couple_members WHERE user_id = $2)
+       ))`,
       [id, userId]
     );
 
@@ -357,14 +420,14 @@ app.put("/expenses/:id", authMiddleware, async (req, res) => {
     const expenseId = checkResult.rows[0].expense_id;
 
     await pool.query(
-      `UPDATE expenses SET service = $1, price = $2, paymentmethod = $3, recurrence = $4
-       WHERE id = $5`,
-      [service, price, paymentMethod, recurrence, expenseId]
+      `UPDATE expenses SET service = $1, price = $2, paymentmethod = $3, recurrence = $4, updated_by = $5, updated_at = NOW()
+       WHERE id = $6`,
+      [service, price, paymentMethod, recurrence, userId, expenseId]
     );
 
     await pool.query(
-      `UPDATE installments SET amount = $1, duedate = $2 WHERE id = $3`,
-      [price, dueDate, id]
+      `UPDATE installments SET amount = $1, duedate = $2, updated_by = $3, updated_at = NOW() WHERE id = $4`,
+      [price, dueDate, userId, id]
     );
 
     res.json({ message: "Despesa atualizada com sucesso" });
@@ -382,7 +445,11 @@ app.delete("/expenses/:id", authMiddleware, async (req, res) => {
     const checkResult = await pool.query(
       `SELECT i.id FROM installments i
        JOIN expenses e ON e.id = i.expense_id
-       WHERE i.id = $1 AND e.user_id = $2`,
+       WHERE i.id = $1 
+       AND (e.user_id = $2 OR e.user_id IN (
+         SELECT user_id FROM couple_members 
+         WHERE couple_id = (SELECT couple_id FROM couple_members WHERE user_id = $2)
+       ))`,
       [id, userId]
     );
 

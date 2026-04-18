@@ -322,6 +322,12 @@ export async function ensureFeatureSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_shopping_list_couple ON shopping_list_items(couple_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_wishlist_items_couple ON wishlist_items(couple_id);`);
+
+  // Audit Columns for Expenses and Installments
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);`);
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`);
+  await pool.query(`ALTER TABLE installments ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);`);
+  await pool.query(`ALTER TABLE installments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`);
 }
 
 async function getCoupleId(userId) {
