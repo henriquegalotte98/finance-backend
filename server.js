@@ -149,6 +149,21 @@ app.post("/admin/create-tables", async (req, res) => {
   }
 });
 
+// Forçar migração de despesas
+app.post("/admin/force-migrate-expenses", async (req, res) => {
+  try {
+    console.log("🛠️ Iniciando migration manual...");
+    await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);`);
+    await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`);
+    await pool.query(`ALTER TABLE installments ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);`);
+    await pool.query(`ALTER TABLE installments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`);
+    res.json({ success: true, message: "Colunas de auditoria adicionadas com sucesso!" });
+  } catch (error) {
+    console.error("❌ Erro na migração manual:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ================= CLOUDINARY =================
 if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
   console.error("❌ Cloudinary não configurado!");
