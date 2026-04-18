@@ -2,10 +2,10 @@ import express from "express"
 import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
 import { pool } from "../db.js"
+import { authMiddleware } from "../middleware/auth.js"
 
 const router = express.Router()
 
-// REGISTER
 // REGISTER
 router.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
@@ -98,4 +98,33 @@ router.post("/login", async (req, res) => {
 
 })
 
-export default router
+// UPDATE PROFILE (NAME)
+router.put("/profile", authMiddleware, async (req, res) => {
+  const { name } = req.body;
+  const userId = req.userId;
+
+  if (!name) {
+    return res.status(400).json({ error: "O nome é obrigatório" });
+  }
+
+  try {
+    const result = await pool.query(
+      "UPDATE users SET name = $1 WHERE id = $2 RETURNING id, name, email",
+      [name, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Usuário não encontrado" });
+    }
+
+    res.json({
+      message: "Perfil atualizado com sucesso",
+      user: result.rows[0]
+    });
+  } catch (err) {
+    console.error("ERRO UPDATE PROFILE:", err);
+    res.status(500).json({ error: "Erro ao atualizar perfil" });
+  }
+});
+
+export default router
