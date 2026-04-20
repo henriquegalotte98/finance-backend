@@ -51,8 +51,6 @@ async function tryFetchHotelPrices({ destination }) {
 }
 
 export async function ensureFeatureSchema() {
-
-  // Dentro da função ensureFeatureSchema(), adicione:
   await pool.query(`
     CREATE TABLE IF NOT EXISTS shopping_lists (
       id SERIAL PRIMARY KEY,
@@ -104,7 +102,6 @@ export async function ensureFeatureSchema() {
   );
 `);
 
-  // Ensure columns exist if table is already created
   await pool.query(`ALTER TABLE shopping_list_items ADD COLUMN IF NOT EXISTS list_id INTEGER REFERENCES shopping_lists(id) ON DELETE CASCADE;`);
   await pool.query(`ALTER TABLE shopping_lists ADD COLUMN IF NOT EXISTS couple_id INTEGER REFERENCES couples(id) ON DELETE SET NULL;`);
 
@@ -134,7 +131,6 @@ export async function ensureFeatureSchema() {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 `);
-
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS couples (
@@ -268,7 +264,6 @@ export async function ensureFeatureSchema() {
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
-  // Dentro da função ensureFeatureSchema(), antes do último `});`
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS shopping_list_items (
@@ -317,13 +312,11 @@ export async function ensureFeatureSchema() {
     );
   `);
 
-  // Índices
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_shopping_list_user ON shopping_list_items(user_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_shopping_list_couple ON shopping_list_items(couple_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_wishlist_items_couple ON wishlist_items(couple_id);`);
 
-  // Audit Columns for Expenses and Installments
   await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);`);
   await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`);
   await pool.query(`ALTER TABLE installments ADD COLUMN IF NOT EXISTS updated_by INTEGER REFERENCES users(id);`);
@@ -346,7 +339,6 @@ async function getSpouseId(userId) {
 }
 
 // ================= CASAL =================
-// ================= SHOPPING LIST SHARE STATUS =================
 router.get('/shopping-list/share-status', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
@@ -404,7 +396,6 @@ router.get("/couple/me", authMiddleware, async (req, res) => {
   }
 });
 
-// ================= SHOPPING LIST SHARE STATUS =================
 router.get('/shopping-list/share-status', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
@@ -443,7 +434,6 @@ router.post('/shopping-list/toggle-share', authMiddleware, async (req, res) => {
   }
 });
 
-// Atualizar a rota para aceitar list_id como parâmetro
 router.get('/shopping-list', authMiddleware, async (req, res) => {
   try {
     const { list_id } = req.query;
@@ -454,7 +444,6 @@ router.get('/shopping-list', authMiddleware, async (req, res) => {
 
     let queryPromise;
     if (list_id) {
-      // Itens de uma lista específica: visible se você for o dono ou se for do seu casal
       queryPromise = pool.query(
         `SELECT sli.* FROM shopping_list_items sli
          LEFT JOIN shopping_lists sl ON sl.id = sli.list_id
@@ -480,7 +469,6 @@ router.get('/shopping-list', authMiddleware, async (req, res) => {
   }
 });
 
-// Obter todas as listas do usuário ou do casal
 router.get('/shopping-lists', authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
@@ -498,7 +486,6 @@ router.get('/shopping-lists', authMiddleware, async (req, res) => {
   }
 });
 
-// Criar uma nova lista vinculada ao casal
 router.post('/shopping-lists', authMiddleware, async (req, res) => {
   try {
     const { name } = req.body;
@@ -513,7 +500,6 @@ router.post('/shopping-lists', authMiddleware, async (req, res) => {
   }
 });
 
-// Deletar uma lista e todos os itens
 router.delete('/shopping-lists/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -525,7 +511,6 @@ router.delete('/shopping-lists/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Alias singular para legibilidade se necessário
 router.get('/shopping-list/all', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
@@ -856,7 +841,6 @@ router.get("/travel/:planId/final-data", authMiddleware, async (req, res) => {
 });
 
 router.get("/travel/:planId/insights", authMiddleware, async (req, res) => {
-  // ... manter o código existente (é muito longo)
   try {
     const planResult = await pool.query("SELECT * FROM travel_plans WHERE id=$1 LIMIT 1", [req.params.planId]);
     if (!planResult.rows[0]) return res.status(404).json({ error: "Viagem não encontrada" });
@@ -1095,7 +1079,7 @@ router.post("/expenses/:expenseId/attachments", authMiddleware, async (req, res)
   }
 });
 
-// ================= LISTA DE DESEJOS =================
+// ================= LISTA DE DESEJOS (CORRIGIDO) =================
 router.get('/wishlist', authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
@@ -1114,7 +1098,6 @@ router.get('/wishlist', authMiddleware, async (req, res) => {
   }
 });
 
-// Buscar nome do parceiro/a
 router.get('/couple/member-name', authMiddleware, async (req, res) => {
   try {
     const coupleId = await getCoupleId(req.userId);
@@ -1133,39 +1116,72 @@ router.get('/couple/member-name', authMiddleware, async (req, res) => {
   }
 });
 
+// POST - Criar item na wishlist (CORRIGIDO - AGORA SALVA CATEGORIA)
 router.post('/wishlist', authMiddleware, async (req, res) => {
   try {
-    const { title, price, link, image, notes } = req.body;
+    let { title, price, link, image, notes, category, priority } = req.body;
     const coupleId = await getCoupleId(req.userId);
+    
+    // 🔧 FIX: Garantir que a categoria seja salva
+    if (!category || category.trim() === '') {
+      category = 'other';
+      console.log("⚠️ Categoria não fornecida, usando 'other' como padrão");
+    }
+    
+    console.log(`📝 Criando item na wishlist: "${title}", Categoria: "${category}", Prioridade: "${priority || 'medium'}"`);
+    
     const result = await pool.query(
-      `INSERT INTO wishlist_items (user_id, couple_id, title, price, link, image, notes, is_shared)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO wishlist_items (user_id, couple_id, title, price, category, priority, link, image, notes, is_shared)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [req.userId, coupleId, title, price, link, image, notes, true]
+      [req.userId, coupleId, title, price, category, priority || 'medium', link, image, notes, true]
     );
+    
+    console.log(`✅ Item criado com sucesso! ID: ${result.rows[0].id}, Categoria salva: ${result.rows[0].category}`);
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Erro ao criar item na wishlist:', error);
+    console.error('❌ Erro ao criar item na wishlist:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
+// PUT - Atualizar item na wishlist (CORRIGIDO - AGORA ATUALIZA CATEGORIA)
 router.put('/wishlist/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, price, link, image, notes } = req.body;
+    let { title, price, link, image, notes, category, priority } = req.body;
     const coupleId = await getCoupleId(req.userId);
+    
+    console.log(`📝 Atualizando item ${id}: Categoria recebida = "${category}"`);
+    
+    // 🔧 FIX: Garantir que a categoria seja atualizada
+    if (!category || category.trim() === '') {
+      category = null; // Será tratado pelo COALESCE
+    }
     
     const result = await pool.query(
       `UPDATE wishlist_items 
-       SET title = $1, price = $2, link = $3, image = $4, notes = $5, updated_at = NOW()
-       WHERE id = $6 AND (user_id = $7 OR couple_id = $8)
+       SET title = COALESCE($1, title),
+           price = COALESCE($2, price),
+           category = COALESCE($3, category, 'other'),
+           priority = COALESCE($4, priority, 'medium'),
+           link = COALESCE($5, link),
+           image = COALESCE($6, image),
+           notes = COALESCE($7, notes),
+           updated_at = NOW()
+       WHERE id = $8 AND (user_id = $9 OR couple_id = $10)
        RETURNING *`,
-      [title, price, link, image, notes, id, req.userId, coupleId]
+      [title, price, category, priority, link, image, notes, id, req.userId, coupleId]
     );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Item não encontrado" });
+    }
+    
+    console.log(`✅ Item ${id} atualizado! Nova categoria: ${result.rows[0].category}`);
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Erro ao atualizar item da wishlist:', error);
+    console.error('❌ Erro ao atualizar item da wishlist:', error);
     res.status(500).json({ error: error.message });
   }
 });
