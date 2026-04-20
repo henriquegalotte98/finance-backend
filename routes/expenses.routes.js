@@ -73,18 +73,24 @@ router.get("/expenses/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// POST - Criar nova despesa
+// POST - Criar nova despesa (CORRIGIDO)
 router.post("/expenses", authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
-    const { service, price, paymentMethod, dueDate, recurrence, numberTimes, category } = req.body;
+    let { service, price, paymentMethod, dueDate, recurrence, numberTimes, category } = req.body;
     const userId = req.userId;
+
+    // 🔧 FIX: Garantir que category tenha um valor padrão
+    if (!category || category.trim() === '') {
+      category = 'outros';
+    }
 
     console.log("🔥 INICIOU POST /expenses");
     console.log("📦 BODY:", req.body);
     console.log("💰 parsedPrice:", price);
     console.log("🔢 numTimes:", numberTimes);
     console.log("🔁 recurrence:", recurrence);
+    console.log("📁 category:", category);
 
     await client.query("BEGIN");
 
@@ -106,8 +112,8 @@ router.post("/expenses", authMiddleware, async (req, res) => {
 
         await client.query(
           `INSERT INTO expenses 
-           (user_id, service, price, payment_method, due_date, recurrence, installment_number, total_installments)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           (user_id, service, price, payment_method, due_date, recurrence, installment_number, total_installments, category)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             userId,
             service,
@@ -116,7 +122,8 @@ router.post("/expenses", authMiddleware, async (req, res) => {
             currentDate,
             'none',
             i + 1,
-            totalInstallmentsCount
+            totalInstallmentsCount,
+            category  // 🔧 FIX: Adicionado category nas parcelas
           ]
         );
       }
@@ -132,7 +139,7 @@ router.post("/expenses", authMiddleware, async (req, res) => {
       res.json(result.rows);
 
     } else {
-      // Despesa única
+      // Despesa única (CORRIGIDO)
       const result = await client.query(
         `INSERT INTO expenses 
          (user_id, service, price, payment_method, due_date, recurrence, category)
@@ -142,6 +149,7 @@ router.post("/expenses", authMiddleware, async (req, res) => {
       );
 
       await client.query("COMMIT");
+      console.log("✅ Despesa criada com categoria:", category);
       res.json(result.rows[0]);
     }
 
@@ -154,12 +162,17 @@ router.post("/expenses", authMiddleware, async (req, res) => {
   }
 });
 
-// PUT - Atualizar despesa
+// PUT - Atualizar despesa (CORRIGIDO)
 router.put("/expenses/:id", authMiddleware, async (req, res) => {
   try {
-    const { service, price, paymentMethod, dueDate, recurrence, category } = req.body;
+    let { service, price, paymentMethod, dueDate, recurrence, category } = req.body;
     const expenseId = req.params.id;
     const userId = req.userId;
+
+    // 🔧 FIX: Garantir que category tenha um valor
+    if (!category || category.trim() === '') {
+      category = null; // Será tratado pelo COALESCE
+    }
 
     console.log(`📝 Atualizando despesa ID: ${expenseId}`);
     console.log(`Dados recebidos:`, { service, price, paymentMethod, dueDate, recurrence, category });
@@ -175,7 +188,7 @@ router.put("/expenses/:id", authMiddleware, async (req, res) => {
       return res.status(404).json({ error: "Despesa não encontrada" });
     }
 
-    // Atualizar a despesa
+    // Atualizar a despesa (CORRIGIDO)
     const result = await pool.query(`
       UPDATE expenses
       SET service = $1,
@@ -183,16 +196,21 @@ router.put("/expenses/:id", authMiddleware, async (req, res) => {
           payment_method = $3,
           due_date = $4,
           recurrence = $5,
-          category = COALESCE($6, category) 
+          category = COALESCE($6, category, 'outros')
       WHERE id = $7 AND user_id = $8
-  RETURNING *
-  `, [
-      service, price, paymentMethod, dueDate, recurrence || 'none',
-      category || category,
-      expenseId, userId
+      RETURNING *
+    `, [
+      service, 
+      price, 
+      paymentMethod, 
+      dueDate, 
+      recurrence || 'none',
+      category,  // Se for null, mantém o existente ou 'outros'
+      expenseId, 
+      userId
     ]);
 
-    console.log(`✅ Despesa ${expenseId} atualizada com sucesso`);
+    console.log(`✅ Despesa ${expenseId} atualizada com sucesso. Nova categoria: ${result.rows[0].category}`);
     res.json(result.rows[0]);
 
   } catch (error) {
@@ -230,108 +248,107 @@ router.delete("/expenses/:id", authMiddleware, async (req, res) => {
     console.error("❌ Erro ao deletar despesa:", error);
     res.status(500).json({ error: "Erro ao deletar despesa: " + error.message });
   }
+});
 
-  // ================= TRANSPORTE DA VIAGEM =================
-  // Salvar dados de transporte
-  router.post("/travel/:planId/transport", authMiddleware, async (req, res) => {
-    try {
-      const { planId } = req.params;
-      const transportData = req.body;
+// ================= TRANSPORTE DA VIAGEM =================
+// Salvar dados de transporte
+router.post("/travel/:planId/transport", authMiddleware, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const transportData = req.body;
 
-      await pool.query(
-        `INSERT INTO travel_transport (travel_plan_id, user_id, transport_data)
+    await pool.query(
+      `INSERT INTO travel_transport (travel_plan_id, user_id, transport_data)
        VALUES ($1, $2, $3)
        ON CONFLICT (travel_plan_id) DO UPDATE SET transport_data = EXCLUDED.transport_data`,
-        [planId, req.userId, JSON.stringify(transportData)]
-      );
+      [planId, req.userId, JSON.stringify(transportData)]
+    );
 
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-  // Buscar dados de transporte
-  router.get("/travel/:planId/transport", authMiddleware, async (req, res) => {
-    try {
-      const { planId } = req.params;
-      const result = await pool.query(
-        "SELECT transport_data FROM travel_transport WHERE travel_plan_id = $1",
-        [planId]
-      );
-      res.json(result.rows[0]?.transport_data || {});
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
+// Buscar dados de transporte
+router.get("/travel/:planId/transport", authMiddleware, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const result = await pool.query(
+      "SELECT transport_data FROM travel_transport WHERE travel_plan_id = $1",
+      [planId]
+    );
+    res.json(result.rows[0]?.transport_data || {});
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-  // ================= SERVIÇOS DA VIAGEM =================
-  // Salvar serviço
-  router.post("/travel/:planId/services", authMiddleware, async (req, res) => {
-    try {
-      const { planId } = req.params;
-      const { title, description, value, bookingDate, usageDate, category, status } = req.body;
+// ================= SERVIÇOS DA VIAGEM =================
+// Salvar serviço
+router.post("/travel/:planId/services", authMiddleware, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { title, description, value, bookingDate, usageDate, category, status } = req.body;
 
-      const result = await pool.query(
-        `INSERT INTO travel_services 
+    const result = await pool.query(
+      `INSERT INTO travel_services 
        (travel_plan_id, user_id, title, description, value, booking_date, usage_date, category, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-        [planId, req.userId, title, description, value, bookingDate, usageDate, category, status]
-      );
+      [planId, req.userId, title, description, value, bookingDate, usageDate, category, status]
+    );
 
-      res.json(result.rows[0]);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-  // Listar serviços da viagem
-  router.get("/travel/:planId/services", authMiddleware, async (req, res) => {
-    try {
-      const { planId } = req.params;
-      const result = await pool.query(
-        "SELECT * FROM travel_services WHERE travel_plan_id = $1 ORDER BY created_at DESC",
-        [planId]
-      );
-      res.json(result.rows);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
+// Listar serviços da viagem
+router.get("/travel/:planId/services", authMiddleware, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const result = await pool.query(
+      "SELECT * FROM travel_services WHERE travel_plan_id = $1 ORDER BY created_at DESC",
+      [planId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-  // Atualizar serviço
-  router.put("/travel/services/:serviceId", authMiddleware, async (req, res) => {
-    try {
-      const { serviceId } = req.params;
-      const { title, description, value, bookingDate, usageDate, category, status } = req.body;
+// Atualizar serviço
+router.put("/travel/services/:serviceId", authMiddleware, async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const { title, description, value, bookingDate, usageDate, category, status } = req.body;
 
-      const result = await pool.query(
-        `UPDATE travel_services 
+    const result = await pool.query(
+      `UPDATE travel_services 
        SET title = $1, description = $2, value = $3, booking_date = $4, usage_date = $5, 
            category = $6, status = $7, updated_at = NOW()
        WHERE id = $8 AND user_id = $9
        RETURNING *`,
-        [title, description, value, bookingDate, usageDate, category, status, serviceId, req.userId]
-      );
+      [title, description, value, bookingDate, usageDate, category, status, serviceId, req.userId]
+    );
 
-      res.json(result.rows[0]);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Deletar serviço
-  router.delete("/travel/services/:serviceId", authMiddleware, async (req, res) => {
-    try {
-      await pool.query("DELETE FROM travel_services WHERE id = $1 AND user_id = $2",
-        [req.params.serviceId, req.userId]);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
-//teste
+
+// Deletar serviço
+router.delete("/travel/services/:serviceId", authMiddleware, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM travel_services WHERE id = $1 AND user_id = $2",
+      [req.params.serviceId, req.userId]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
