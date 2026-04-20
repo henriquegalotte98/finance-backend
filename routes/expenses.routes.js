@@ -77,7 +77,7 @@ router.get("/expenses/:id", authMiddleware, async (req, res) => {
 router.post("/expenses", authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
-    const { service, price, paymentMethod, dueDate, recurrence, numberTimes } = req.body;
+    const { service, price, paymentMethod, dueDate, recurrence, numberTimes, category } = req.body;
     const userId = req.userId;
 
     console.log("🔥 INICIOU POST /expenses");
@@ -135,10 +135,10 @@ router.post("/expenses", authMiddleware, async (req, res) => {
       // Despesa única
       const result = await client.query(
         `INSERT INTO expenses 
-         (user_id, service, price, payment_method, due_date, recurrence)
-         VALUES ($1, $2, $3, $4, $5, $6)
+         (user_id, service, price, payment_method, due_date, recurrence, category)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [userId, service, price, paymentMethod, dueDate, recurrence || 'none']
+        [userId, service, price, paymentMethod, dueDate, recurrence || 'none', category]
       );
 
       await client.query("COMMIT");
@@ -157,12 +157,12 @@ router.post("/expenses", authMiddleware, async (req, res) => {
 // PUT - Atualizar despesa
 router.put("/expenses/:id", authMiddleware, async (req, res) => {
   try {
-    const { service, price, paymentMethod, dueDate, recurrence } = req.body;
+    const { service, price, paymentMethod, dueDate, recurrence, category } = req.body;
     const expenseId = req.params.id;
     const userId = req.userId;
 
     console.log(`📝 Atualizando despesa ID: ${expenseId}`);
-    console.log(`Dados recebidos:`, { service, price, paymentMethod, dueDate, recurrence });
+    console.log(`Dados recebidos:`, { service, price, paymentMethod, dueDate, recurrence, category });
 
     // Verificar se a despesa existe
     const checkResult = await pool.query(
@@ -176,17 +176,21 @@ router.put("/expenses/:id", authMiddleware, async (req, res) => {
     }
 
     // Atualizar a despesa
-    const result = await pool.query(
-      `UPDATE expenses 
-       SET service = $1, 
-           price = $2, 
-           payment_method = $3, 
-           due_date = $4, 
-           recurrence = $5
-       WHERE id = $6 AND user_id = $7
-       RETURNING *`,
-      [service, price, paymentMethod, dueDate, recurrence || 'none', expenseId, userId]
-    );
+    const result = await pool.query(`
+      UPDATE expenses
+      SET service = $1,
+          price = $2,
+          payment_method = $3,
+          due_date = $4,
+          recurrence = $5,
+          category = COALESCE($6, category) 
+      WHERE id = $7 AND user_id = $8
+  RETURNING *
+  `, [
+      service, price, paymentMethod, dueDate, recurrence || 'none',
+      category || category,
+      expenseId, userId
+    ]);
 
     console.log(`✅ Despesa ${expenseId} atualizada com sucesso`);
     res.json(result.rows[0]);
