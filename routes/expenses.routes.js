@@ -77,14 +77,19 @@ router.get("/expenses/:id", authMiddleware, async (req, res) => {
 router.post("/expenses", authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
+    console.log("=".repeat(50));
+    console.log("🔍 REQ.BODY COMPLETO:", JSON.stringify(req.body, null, 2));
+    console.log("🔍 TIPO DO CAMPO category:", typeof req.body.category);
+    console.log("🔍 VALOR DO CAMPO category:", req.body.category);
+    console.log("=".repeat(50));
     let { service, price, paymentMethod, dueDate, recurrence, numberTimes, category } = req.body;
     const userId = req.userId;
-
+    console.log("📌 ANTES DA CORREÇÃO - category:", category);
     // 🔧 FIX: Garantir que category tenha um valor padrão
     if (!category || category.trim() === '') {
       category = 'outros';
     }
-
+    console.log("📌 DEPOIS DA CORREÇÃO - category:", category);
     console.log("🔥 INICIOU POST /expenses");
     console.log("📦 BODY:", req.body);
     console.log("💰 parsedPrice:", price);
@@ -200,13 +205,13 @@ router.put("/expenses/:id", authMiddleware, async (req, res) => {
       WHERE id = $7 AND user_id = $8
       RETURNING *
     `, [
-      service, 
-      price, 
-      paymentMethod, 
-      dueDate, 
+      service,
+      price,
+      paymentMethod,
+      dueDate,
       recurrence || 'none',
       category,  // Se for null, mantém o existente ou 'outros'
-      expenseId, 
+      expenseId,
       userId
     ]);
 
