@@ -73,29 +73,25 @@ router.get("/expenses/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// POST - Criar nova despesa (CORRIGIDO)
+// POST - Criar nova despesa (VERSÃO SIMPLIFICADA)
 router.post("/expenses", authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try {
-    console.log("=".repeat(50));
-    console.log("🔍 REQ.BODY COMPLETO:", JSON.stringify(req.body, null, 2));
-    console.log("🔍 TIPO DO CAMPO category:", typeof req.body.category);
-    console.log("🔍 VALOR DO CAMPO category:", req.body.category);
-    console.log("=".repeat(50));
     let { service, price, paymentMethod, dueDate, recurrence, numberTimes, category } = req.body;
     const userId = req.userId;
-    console.log("📌 ANTES DA CORREÇÃO - category:", category);
-    // 🔧 FIX: Garantir que category tenha um valor padrão
-    if (!category || category.trim() === '') {
+
+    // 🔧 SOLUÇÃO DEFINITIVA: Se a categoria veio do frontend, usa ela diretamente
+    if (category && category.trim() !== '') {
+      // Mantém a categoria exatamente como veio do frontend
+      console.log(`✅ Categoria recebida do frontend: "${category}"`);
+    } else {
       category = 'outros';
+      console.log("⚠️ Nenhuma categoria enviada, usando 'outros'");
     }
-    console.log("📌 DEPOIS DA CORREÇÃO - category:", category);
-    console.log("🔥 INICIOU POST /expenses");
-    console.log("📦 BODY:", req.body);
-    console.log("💰 parsedPrice:", price);
-    console.log("🔢 numTimes:", numberTimes);
-    console.log("🔁 recurrence:", recurrence);
-    console.log("📁 category:", category);
+
+    // Resto do código igual...
+
+
 
     await client.query("BEGIN");
 
